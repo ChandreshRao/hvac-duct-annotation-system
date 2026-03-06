@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Request timeout for GPT-4o calls (seconds)
     # ------------------------------------------------------------------
     gpt_timeout_seconds: float = 60.0
+    enable_gpt_fallback: bool = False
 
     # ------------------------------------------------------------------
     # Duct detection tuning (can be overridden via env)

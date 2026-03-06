@@ -58,29 +58,24 @@ def crop_duct_region(
         page_rect = page.rect
         mat = _pdf_to_scale_matrix(dpi)
 
-        # Convert PDF-space bbox to pixel space
-        scale = dpi / 72.0
-        x0 = _clamp(candidate.bbox.x0, 0, page_rect.width) * scale
-        y0 = _clamp(candidate.bbox.y0, 0, page_rect.height) * scale
-        x1 = _clamp(candidate.bbox.x1, 0, page_rect.width) * scale
-        y1 = _clamp(candidate.bbox.y1, 0, page_rect.height) * scale
+        # Clamp in PDF-space (points)
+        x0_pt = _clamp(candidate.bbox.x0, 0, page_rect.width)
+        y0_pt = _clamp(candidate.bbox.y0, 0, page_rect.height)
+        x1_pt = _clamp(candidate.bbox.x1, 0, page_rect.width)
+        y1_pt = _clamp(candidate.bbox.y1, 0, page_rect.height)
 
-        if (x1 - x0) < MIN_CROP_PX or (y1 - y0) < MIN_CROP_PX:
+        scale = dpi / 72.0
+        w_px = (x1_pt - x0_pt) * scale
+        h_px = (y1_pt - y0_pt) * scale
+        if w_px < MIN_CROP_PX or h_px < MIN_CROP_PX:
             logger.debug(
                 "Candidate %d crop too small (%.1f × %.1f px) – skipped",
-                candidate.id, x1 - x0, y1 - y0,
+                candidate.id, w_px, h_px,
             )
             return None
 
-        # Render full page then extract the sub-rectangle
-        pixmap = page.get_pixmap(matrix=mat, alpha=False)
-        clip = fitz.IRect(int(x0), int(y0), int(x1), int(y1))
-        sub = pixmap.set_origin(0, 0)  # ensure origin at 0,0
-        # Use a fresh pixmap clipped to the region
-        sub_pix = fitz.Pixmap(
-            pixmap,
-            fitz.IRect(int(x0), int(y0), int(x1), int(y1)),
-        )
+        clip_rect = fitz.Rect(x0_pt, y0_pt, x1_pt, y1_pt)
+        sub_pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
 
         buf = BytesIO()
         buf.write(sub_pix.tobytes("png"))
@@ -102,45 +97,40 @@ def crop_all_candidates(
     -------
     Mapping of candidate.id → PNG bytes (candidates that fail are omitted).
     """
-    # Group by page to avoid reopening the doc repeatedly
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     scale = dpi / 72.0
     mat = _pdf_to_scale_matrix(dpi)
 
-    # Pre-render all needed pages
-    page_pixmaps: dict[int, fitz.Pixmap] = {}
-    needed_pages = {c.bbox.page for c in candidates}
-    for pn in needed_pages:
-        if pn < len(doc):
-            page_pixmaps[pn] = doc[pn].get_pixmap(matrix=mat, alpha=False)
-    doc.close()
-
     crops: dict[int, bytes] = {}
-    for cand in candidates:
-        pn = cand.bbox.page
-        pixmap = page_pixmaps.get(pn)
-        if pixmap is None:
-            continue
+    try:
+        for cand in candidates:
+            pn = cand.bbox.page
+            if pn < 0 or pn >= len(doc):
+                logger.debug("Candidate %d has invalid page %d", cand.id, pn)
+                continue
 
-        page_w = pixmap.width
-        page_h = pixmap.height
+            page = doc[pn]
+            page_rect = page.rect
 
-        x0 = _clamp(cand.bbox.x0 * scale, 0, page_w)
-        y0 = _clamp(cand.bbox.y0 * scale, 0, page_h)
-        x1 = _clamp(cand.bbox.x1 * scale, 0, page_w)
-        y1 = _clamp(cand.bbox.y1 * scale, 0, page_h)
+            x0_pt = _clamp(cand.bbox.x0, 0, page_rect.width)
+            y0_pt = _clamp(cand.bbox.y0, 0, page_rect.height)
+            x1_pt = _clamp(cand.bbox.x1, 0, page_rect.width)
+            y1_pt = _clamp(cand.bbox.y1, 0, page_rect.height)
 
-        w, h = x1 - x0, y1 - y0
-        if w < MIN_CROP_PX or h < MIN_CROP_PX:
-            logger.debug("Candidate %d too small – skipped", cand.id)
-            continue
+            w_px = (x1_pt - x0_pt) * scale
+            h_px = (y1_pt - y0_pt) * scale
+            if w_px < MIN_CROP_PX or h_px < MIN_CROP_PX:
+                logger.debug("Candidate %d too small – skipped", cand.id)
+                continue
 
-        clip = fitz.IRect(int(x0), int(y0), int(x1), int(y1))
-        try:
-            sub = fitz.Pixmap(pixmap, clip)
-            crops[cand.id] = sub.tobytes("png")
-        except Exception as exc:
-            logger.warning("Failed to crop candidate %d: %s", cand.id, exc)
+            try:
+                clip_rect = fitz.Rect(x0_pt, y0_pt, x1_pt, y1_pt)
+                sub_pix = page.get_pixmap(matrix=mat, clip=clip_rect, alpha=False)
+                crops[cand.id] = sub_pix.tobytes("png")
+            except Exception as exc:
+                logger.warning("Failed to crop candidate %d: %s", cand.id, exc)
+    finally:
+        doc.close()
 
     logger.info("Cropped %d / %d candidates", len(crops), len(candidates))
     return crops

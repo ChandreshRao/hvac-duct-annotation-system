@@ -1,8 +1,9 @@
 # HVAC Duct Annotation System
 
 A FastAPI backend that accepts an HVAC mechanical-drawing PDF, detects duct
-regions using PyMuPDF vector geometry, analyses each region with GPT-4o
-(via GitHub Models Marketplace or OpenAI), and returns structured annotations.
+regions using PyMuPDF vector geometry, analyses each region with rules-based
+text extraction first, falls back to GPT-4o when rules cannot resolve a
+region, and returns structured annotations.
 
 ---
 
@@ -28,7 +29,12 @@ POST /api/v1/annotate
   • crop bounding-box region → PNG bytes
          │
          ▼
-  GPT-4o Analyzer (GitHub Models / OpenAI)
+  DuctTextExtractor (rules-first)
+  • page-0 text span extraction
+  • regex label matching + pressure heuristics
+         │
+         ▼
+  GPT-4o Analyzer (fallback only)
   • base64-encode PNG
   • send with structured prompt
   • parse JSON: dimension, pressure_class, material, confidence
@@ -52,7 +58,8 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and set GITHUB_TOKEN or OPENAI_API_KEY
+# Edit .env; set ENABLE_GPT_FALLBACK=true to use GPT fallback.
+# If fallback is enabled, also set GITHUB_TOKEN or OPENAI_API_KEY.
 ```
 
 ### 3. Run the server
@@ -110,6 +117,7 @@ Returns `{"status": "ok"}`.
 | `OPENAI_API_KEY` | – | OpenAI API key (used if GITHUB_TOKEN not set) |
 | `GPT_MODEL` | `gpt-4o` | Model name |
 | `GPT_TIMEOUT_SECONDS` | `60` | HTTP timeout for GPT calls |
+| `ENABLE_GPT_FALLBACK` | `false` | Enables GPT-4o fallback when text rules do not match |
 | `RENDER_DPI` | `150` | PDF render resolution for crops |
 | `DUCT_MIN_GAP` | `4.0` | Min parallel-line gap (PDF points) |
 | `DUCT_MAX_GAP` | `200.0` | Max parallel-line gap (PDF points) |
@@ -133,6 +141,7 @@ hvac-duct-annotation-system/
 │       ├── pdf_parser.py        # PyMuPDF line + text extraction
 │       ├── duct_detector.py     # Parallel-line duct detection
 │       ├── image_cropper.py     # PDF region → PNG crop
+│       ├── duct_text_extractor.py # Rules-based text extraction + pressure rules
 │       └── gpt_analyzer.py      # GPT-4o vision analysis
 ├── requirements.txt
 ├── .env.example

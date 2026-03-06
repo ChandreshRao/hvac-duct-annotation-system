@@ -1,8 +1,9 @@
 """
 GPT-4o Analyzer Service
 =======================
-Sends cropped duct images to GitHub Models / OpenAI GPT-4o with vision
-and parses the structured JSON response.
+Primary analysis path uses rules-based PDF text extraction.
+When rules cannot resolve a candidate (confidence == 0.0), falls back to
+GitHub Models / OpenAI GPT-4o vision for that crop.
 
 GitHub Models endpoint:
   https://models.inference.ai.azure.com
@@ -28,6 +29,10 @@ import httpx
 
 from app.core.config import settings
 from app.models.schemas import DuctCandidate, GPTDuctAnalysis
+from app.services.duct_text_extractor import (
+    analyze_candidate_via_text_extraction,
+    extract_duct_text_annotations,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -172,9 +177,13 @@ async def analyze_all_crops(
     crops: dict[int, bytes],
     candidates_by_id: dict[int, DuctCandidate],
     concurrency: int = 4,
+    pdf_path: str | None = None,
 ) -> dict[int, GPTDuctAnalysis]:
     """
-    Analyze all cropped duct images concurrently.
+    Analyze all cropped duct images using text extraction first.
+
+    For candidates unresolved by text extraction (confidence == 0.0),
+    fall back to GPT-4o crop analysis.
 
     Parameters
     ----------
@@ -190,6 +199,53 @@ async def analyze_all_crops(
     Mapping of candidate_id → GPTDuctAnalysis.
     """
     results: dict[int, GPTDuctAnalysis] = {}
+    extracted_annotations: list[dict[str, Any]] = []
+
+    if pdf_path:
+        try:
+            extracted_annotations = extract_duct_text_annotations(pdf_path)
+        except Exception as exc:
+            logger.warning("Rules-based text extraction failed: %s", exc)
+
+    fallback_crops: dict[int, bytes] = {}
+    for cand_id, img in crops.items():
+        cand = candidates_by_id.get(cand_id)
+        if cand is None:
+            continue
+
+        if extracted_annotations:
+            analysis = analyze_candidate_via_text_extraction(cand, extracted_annotations)
+        else:
+            analysis = GPTDuctAnalysis(confidence=0.0)
+
+        if analysis.confidence > 0.0:
+            results[cand_id] = analysis
+            logger.debug(
+                "Candidate %d resolved via text extraction → dim=%s pc=%s conf=%.2f",
+                cand_id,
+                analysis.dimension,
+                analysis.pressure_class,
+                analysis.confidence,
+            )
+        else:
+            fallback_crops[cand_id] = img
+
+    if not fallback_crops:
+        logger.info(
+            "Analysis complete via text extraction: %d / %d crops processed",
+            len(results),
+            len(crops),
+        )
+        return results
+
+    if not settings.enable_gpt_fallback:
+        logger.info(
+            "GPT fallback disabled (ENABLE_GPT_FALLBACK=false): %d candidates unresolved by text extraction",
+            len(fallback_crops),
+        )
+        return results
+
+    settings.validate_auth()
     semaphore = asyncio.Semaphore(concurrency)
 
     async with httpx.AsyncClient() as client:
@@ -210,7 +266,13 @@ async def analyze_all_crops(
                     analysis.confidence,
                 )
 
-        await asyncio.gather(*[_analyze_one(cid, img) for cid, img in crops.items()])
+        await asyncio.gather(*[_analyze_one(cid, img) for cid, img in fallback_crops.items()])
 
-    logger.info("GPT-4o analysis complete: %d / %d crops processed", len(results), len(crops))
+    logger.info(
+        "Analysis complete: %d / %d crops processed (%d via text extraction, %d via GPT fallback)",
+        len(results),
+        len(crops),
+        len(results) - len(fallback_crops),
+        len(fallback_crops),
+    )
     return results

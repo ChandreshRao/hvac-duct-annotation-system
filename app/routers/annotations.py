@@ -8,6 +8,8 @@ GET  /api/v1/health     – simple health/readiness probe
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 from collections import defaultdict
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
@@ -67,7 +69,7 @@ async def annotate_pdf(
     2. Extract vector lines and text blocks via PyMuPDF.
     3. Detect parallel-line duct candidates.
     4. Crop each candidate region as a PNG.
-    5. Send each crop to GPT-4o for structured analysis.
+    5. Run rules-based text extraction; fall back to GPT-4o when needed.
     6. Return all duct annotations.
     """
     # ------------------------------------------------------------------
@@ -140,19 +142,37 @@ async def annotate_pdf(
     crops = crop_all_candidates(pdf_bytes, candidates, dpi=settings.render_dpi)
 
     # ------------------------------------------------------------------
-    # 5. GPT-4o analysis
+    # 5. Rules-based analysis with GPT fallback
     # ------------------------------------------------------------------
-    settings.validate_auth()
     candidates_by_id = {c.id: c for c in candidates}
+    temp_pdf_path: str | None = None
 
     try:
-        gpt_results = await analyze_all_crops(crops, candidates_by_id)
+        with tempfile.NamedTemporaryFile(mode="wb", suffix=".pdf", delete=False) as temp_pdf:
+            temp_pdf.write(pdf_bytes)
+            temp_pdf_path = temp_pdf.name
+
+        gpt_results = await analyze_all_crops(
+            crops,
+            candidates_by_id,
+            pdf_path=temp_pdf_path,
+        )
     except Exception as exc:
-        logger.exception("GPT-4o analysis failed")
+        logger.exception("Duct analysis failed")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"GPT-4o analysis error: {exc}",
+            detail=f"Duct analysis error: {exc}",
         ) from exc
+    finally:
+        if temp_pdf_path:
+            try:
+                os.remove(temp_pdf_path)
+            except OSError as cleanup_exc:
+                logger.warning(
+                    "Could not remove temporary PDF '%s': %s",
+                    temp_pdf_path,
+                    cleanup_exc,
+                )
 
     # ------------------------------------------------------------------
     # 6. Assemble annotations

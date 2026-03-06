@@ -23,6 +23,7 @@ import logging
 import math
 from typing import Iterable
 
+from app.core.config import settings
 from app.models.schemas import (
     BoundingBox,
     DuctCandidate,
@@ -38,8 +39,8 @@ logger = logging.getLogger(__name__)
 
 ANGLE_TOL: float = 8.0       # degrees – how far off-axis a line may be
 LENGTH_TOL_RATIO: float = 0.25  # lines must be within ±25 % of each other
-MIN_GAP: float = 4.0          # points – minimum duct channel width
-MAX_GAP: float = 200.0         # points – maximum duct channel width
+MIN_GAP: float = settings.duct_min_gap  # points – minimum duct channel width
+MAX_GAP: float = settings.duct_max_gap  # points – maximum duct channel width
 OVERLAP_RATIO: float = 0.40    # fraction of shorter segment that must overlap
 BBOX_PADDING: float = 6.0      # points – padding added around detected bbox
 MIN_LINE_LENGTH: float = 16.0  # points – ignore tiny artefact lines
