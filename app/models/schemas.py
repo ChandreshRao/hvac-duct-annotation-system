@@ -100,6 +100,8 @@ class DuctCandidate(BaseModel):
 # Final annotation returned to the frontend
 # ---------------------------------------------------------------------------
 
+from typing import Optional, Union, Dict
+
 class DuctBBox(BaseModel):
     """Frontend-friendly bounding box with page-relative pixel coordinates."""
 
@@ -113,7 +115,7 @@ class DuctBBox(BaseModel):
 class DuctAnnotation(BaseModel):
     """Single duct annotation as returned by the /annotate endpoint."""
 
-    id: int
+    id: Union[int, str]
     bbox: DuctBBox
     label: str = Field(..., description="Human-readable label, e.g. '24x12 – 1\"wg'")
     pressure_class: Optional[str] = None
@@ -121,6 +123,8 @@ class DuctAnnotation(BaseModel):
     material: Optional[str] = None
     confidence: float = 0.0
     orientation: str = "unknown"
+    source: Optional[str] = None
+    line: Optional[Dict[str, float]] = None
 
 
 class AnnotationResponse(BaseModel):

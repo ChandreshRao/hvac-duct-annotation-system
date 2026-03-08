@@ -1,0 +1,1202 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <title>HVAC Duct Annotator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow:wght@300;400;600&display=swap');
+
+    :root {
+      --bg: #07090d;
+      --panel: #0d1320;
+      --border: #1a2744;
+      --low: #10B981;
+      --medium: #F59E0B;
+      --high: #EF4444;
+      --accent: #3B82F6;
+      --draw: #A78BFA;
+      --text: #cbd5e1;
+      --dim: #475569;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Barlow', sans-serif;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden
+    }
+
+    /* TOP BAR */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap
+    }
+
+    .logo {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      color: var(--accent);
+      letter-spacing: 3px;
+      white-space: nowrap
+    }
+
+    .sep {
+      width: 1px;
+      height: 22px;
+      background: var(--border);
+      flex-shrink: 0
+    }
+
+    .btn {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 5px 12px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--dim);
+      cursor: pointer;
+      transition: all .15s;
+      white-space: nowrap
+    }
+
+    .btn:hover {
+      border-color: var(--accent);
+      color: #93C5FD;
+      background: #1e3a5f33
+    }
+
+    .btn.on {
+      border-color: var(--accent);
+      color: #93C5FD;
+      background: #1e3a5f55
+    }
+
+    .btn.draw-on {
+      border-color: var(--draw);
+      color: var(--draw);
+      background: #2d1f5e55
+    }
+
+    .btn.export {
+      border-color: #10B981;
+      color: #10B981
+    }
+
+    .btn.export:hover {
+      background: #0a2d1f55
+    }
+
+    .btn.danger {
+      border-color: #EF4444;
+      color: #EF4444
+    }
+
+    #upload-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 5px 12px;
+      border-radius: 3px;
+      border: 1px solid var(--accent);
+      background: #1e3a5f33;
+      color: #93C5FD;
+      cursor: pointer;
+      white-space: nowrap
+    }
+
+    #upload-label:hover {
+      background: #1e3a5f66
+    }
+
+    #file-input {
+      display: none
+    }
+
+    #stat {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      color: var(--dim);
+      letter-spacing: 1px;
+      white-space: nowrap;
+      margin-left: auto
+    }
+
+    /* MODE BADGE */
+    #mode-badge {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      padding: 4px 10px;
+      border-radius: 3px;
+      display: none
+    }
+
+    #mode-badge.draw {
+      display: block;
+      background: #2d1f5e;
+      border: 1px solid var(--draw);
+      color: var(--draw)
+    }
+
+    #mode-badge.view {
+      display: block;
+      background: #0f2d1f;
+      border: 1px solid #10B981;
+      color: #10B981
+    }
+
+    /* MAIN */
+    #main {
+      display: flex;
+      flex: 1;
+      overflow: hidden
+    }
+
+    /* CANVAS AREA */
+    #wrap {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      background: radial-gradient(ellipse at 15% 15%, #1e3a5f15 0%, transparent 55%),
+        repeating-linear-gradient(0deg, transparent, transparent 39px, #1a274410 40px),
+        repeating-linear-gradient(90deg, transparent, transparent 39px, #1a274410 40px), var(--bg)
+    }
+
+    #container {
+      position: relative;
+      display: inline-block
+    }
+
+    #pdf-canvas {
+      display: block
+    }
+
+    #svg-overlay {
+      position: absolute;
+      top: 0;
+      left: 0
+    }
+
+    /* cursor states */
+    #svg-overlay.mode-draw {
+      cursor: crosshair
+    }
+
+    #svg-overlay.mode-view {
+      cursor: default
+    }
+
+    /* Drop zone */
+    #dropzone {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 14px;
+      pointer-events: none
+    }
+
+    .dz-icon {
+      font-size: 44px;
+      opacity: .25
+    }
+
+    .dz-title {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      letter-spacing: 3px;
+      color: var(--dim)
+    }
+
+    .dz-sub {
+      font-size: 11px;
+      color: #334155;
+      letter-spacing: 1px
+    }
+
+    #dropzone.hidden {
+      display: none
+    }
+
+    /* TOOLTIP */
+    #tt {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      opacity: 0;
+      transform: translateY(5px);
+      transition: opacity .12s, transform .12s;
+      min-width: 200px
+    }
+
+    #tt.on {
+      opacity: 1;
+      transform: translateY(0)
+    }
+
+    .tt-box {
+      background: #07090dee;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 13px 16px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 8px 30px #00000099
+    }
+
+    .tt-title {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 20px;
+      color: #f1f5f9;
+      margin-bottom: 9px;
+      letter-spacing: 1px
+    }
+
+    .tt-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 4px
+    }
+
+    .tt-k {
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      font-family: 'Share Tech Mono', monospace
+    }
+
+    .tt-v {
+      font-size: 10px;
+      color: var(--text);
+      font-family: 'Share Tech Mono', monospace
+    }
+
+    .tt-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 3px;
+      font-size: 9px;
+      letter-spacing: 2px;
+      font-family: 'Share Tech Mono', monospace;
+      font-weight: 700
+    }
+
+    .tt-div {
+      height: 1px;
+      background: var(--border);
+      margin: 7px 0
+    }
+
+    .tt-hint {
+      font-size: 8px;
+      color: #334155;
+      letter-spacing: 1px;
+      font-family: 'Share Tech Mono', monospace;
+      margin-top: 6px
+    }
+
+    /* SIDE PANEL */
+    #side {
+      width: 250px;
+      flex-shrink: 0;
+      background: var(--panel);
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden
+    }
+
+    .ph {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 3px;
+      color: var(--dim);
+      display: flex;
+      justify-content: space-between;
+      align-items: center
+    }
+
+    .cnt {
+      background: #1e3a5f;
+      color: #93C5FD;
+      padding: 1px 8px;
+      border-radius: 10px;
+      font-size: 9px
+    }
+
+    #list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 6px
+    }
+
+    #list::-webkit-scrollbar {
+      width: 3px
+    }
+
+    #list::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 2px
+    }
+
+    .di {
+      display: flex;
+      align-items: center;
+      gap: 9px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      margin-bottom: 5px;
+      cursor: pointer;
+      transition: all .15s
+    }
+
+    .di:hover,
+    .di.on {
+      border-color: var(--accent);
+      background: #1e3a5f22
+    }
+
+    .di.manual-item {
+      border-color: #2d1f5e
+    }
+
+    .di.manual-item:hover,
+    .di.manual-item.on {
+      border-color: var(--draw)
+    }
+
+    .di-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0
+    }
+
+    .di-lbl {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 11px;
+      color: #e2e8f0;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis
+    }
+
+    .di-p {
+      font-size: 8px;
+      letter-spacing: 1px;
+      font-family: 'Share Tech Mono', monospace
+    }
+
+    .di-del {
+      font-size: 10px;
+      color: #475569;
+      padding: 0 2px;
+      margin-left: 2px;
+      cursor: pointer;
+      transition: color .1s
+    }
+
+    .di-del:hover {
+      color: #EF4444
+    }
+
+    /* MODAL */
+    #modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: #00000088;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(3px)
+    }
+
+    #modal-overlay.hidden {
+      display: none
+    }
+
+    #modal {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+      width: 360px;
+      box-shadow: 0 20px 60px #000000aa
+    }
+
+    .modal-title {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      letter-spacing: 3px;
+      color: var(--accent);
+      margin-bottom: 20px
+    }
+
+    .modal-field {
+      margin-bottom: 14px
+    }
+
+    .modal-label {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      letter-spacing: 2px;
+      color: var(--dim);
+      margin-bottom: 5px;
+      display: block
+    }
+
+    .modal-input {
+      width: 100%;
+      background: #080d14;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: #f1f5f9;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      outline: none;
+      transition: border-color .15s
+    }
+
+    .modal-input:focus {
+      border-color: var(--accent)
+    }
+
+    .modal-select {
+      width: 100%;
+      background: #080d14;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      color: #f1f5f9;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      outline: none;
+      -webkit-appearance: none;
+      cursor: pointer
+    }
+
+    .modal-select:focus {
+      border-color: var(--accent)
+    }
+
+    .modal-coords {
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 9px;
+      color: var(--dim);
+      background: #080d14;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      line-height: 1.8
+    }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 20px
+    }
+
+    .modal-btn {
+      flex: 1;
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 2px;
+      padding: 9px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--dim);
+      transition: all .15s
+    }
+
+    .modal-btn.primary {
+      border-color: var(--accent);
+      color: #93C5FD;
+      background: #1e3a5f55
+    }
+
+    .modal-btn.primary:hover {
+      background: #1e3a5f88
+    }
+
+    .modal-btn:hover {
+      border-color: #475569;
+      color: var(--text)
+    }
+
+    @keyframes march {
+      to {
+        stroke-dashoffset: -20
+      }
+    }
+  </style>
+</head>
+
+<body>
+
+  <!-- TOP BAR -->
+  <div id="topbar">
+    <div class="logo">HVAC // ANNOTATOR</div>
+    <div class="sep"></div>
+    <label id="upload-label" for="file-input">⊕ UPLOAD PDF</label>
+    <input type="file" id="file-input" accept=".pdf" />
+    <div class="sep"></div>
+    <button class="btn" id="btn-draw" onclick="toggleDrawMode()">✏ DRAW MODE</button>
+    <div class="sep"></div>
+    <button class="btn" id="btn-all" onclick="setFilter('all')">ALL</button>
+    <button class="btn" id="btn-low" onclick="setFilter('LOW')">LOW</button>
+    <button class="btn" id="btn-med" onclick="setFilter('MEDIUM')">MEDIUM</button>
+    <button class="btn" id="btn-high" onclick="setFilter('HIGH')">HIGH</button>
+    <div class="sep"></div>
+    <button class="btn export" onclick="exportJSON()">⬇ EXPORT JSON</button>
+    <button class="btn danger" onclick="clearAll()">✕ CLEAR ALL</button>
+    <div class="sep"></div>
+    <div id="mode-badge"></div>
+    <div id="stat">NO FILE LOADED</div>
+  </div>
+
+  <!-- MAIN -->
+  <div id="main">
+    <div id="wrap">
+      <div id="container">
+        <canvas id="pdf-canvas"></canvas>
+        <svg id="svg-overlay"></svg>
+      </div>
+      <div id="dropzone">
+        <div class="dz-icon">⊞</div>
+        <div class="dz-title">DROP PDF HERE</div>
+        <div class="dz-sub">OR CLICK UPLOAD ABOVE</div>
+        <div class="dz-sub" style="margin-top:10px;color:#1e3a5f">THEN ENABLE DRAW MODE AND DRAG LINES ONTO DUCTS</div>
+      </div>
+    </div>
+
+    <!-- SIDE PANEL -->
+    <div id="side">
+      <div class="ph">ANNOTATIONS <span class="cnt" id="cnt">0</span></div>
+      <div id="list"></div>
+    </div>
+  </div>
+
+  <!-- TOOLTIP -->
+  <div id="tt">
+    <div class="tt-box">
+      <div class="tt-title" id="tt-lbl"></div>
+      <div class="tt-div"></div>
+      <div class="tt-row"><span class="tt-k">PRESSURE</span><span class="tt-badge" id="tt-pres"></span></div>
+      <div class="tt-row"><span class="tt-k">COORDS (PDF pts)</span><span class="tt-v" id="tt-coords"></span></div>
+      <div class="tt-row"><span class="tt-k">ORIENTATION</span><span class="tt-v" id="tt-orient"></span></div>
+      <div class="tt-row"><span class="tt-k">SOURCE</span><span class="tt-v" id="tt-src"></span></div>
+      <div class="tt-hint">CLICK TO EDIT · DEL KEY TO DELETE</div>
+    </div>
+  </div>
+
+  <!-- LABEL MODAL -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div class="modal-title">⊕ NEW ANNOTATION</div>
+      <div class="modal-field">
+        <label class="modal-label">DUCT LABEL (e.g. 14"⌀ or 16"×8")</label>
+        <input class="modal-input" id="m-label" type="text" placeholder='14"⌀' autocomplete="off" />
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">PRESSURE CLASS</label>
+        <select class="modal-select" id="m-pressure">
+          <option value="LOW">LOW</option>
+          <option value="MEDIUM">MEDIUM</option>
+          <option value="HIGH">HIGH</option>
+        </select>
+      </div>
+      <div class="modal-field">
+        <label class="modal-label">COORDINATES (PDF points — read only)</label>
+        <div class="modal-coords" id="m-coords">—</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="cancelModal()">CANCEL</button>
+        <button class="modal-btn primary" onclick="confirmModal()">SAVE ANNOTATION</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ─── Config ────────────────────────────────────────────────────────────────
+    const API_ENDPOINT = 'http://localhost:8000/api/v1/annotate';
+    const PC = { HIGH: '#EF4444', MEDIUM: '#F59E0B', LOW: '#10B981' };
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    // ─── State ─────────────────────────────────────────────────────────────────
+    let annotations = [];   // committed annotations
+    let pdfDoc = null;
+    let pageScale = 1.5;
+    let pdfW = 0;    // PDF base width  (pts)
+    let pdfH = 0;    // PDF base height (pts)
+    let pdfRot = 0;    // PDF rotation degrees
+    let activeFilter = 'all';
+    let drawMode = false;
+    let selectedId = null;
+
+    // Drag state — only lives between mousedown and mouseup
+    let drag = {
+      active: false,
+      startX: 0, startY: 0,   // SVG pixel coords
+      draftEl: null            // <line> element for live preview
+    };
+
+    // Pending annotation waiting for label input
+    let pending = null;   // { x0,y0,x1,y1 } in PDF pts
+
+    // ─── PDF Rendering ─────────────────────────────────────────────────────────
+    document.getElementById('file-input').addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      document.getElementById('dropzone').classList.add('hidden');
+      await renderPDF(file);
+      await fetchAnnotations(file);
+    });
+
+    document.getElementById('wrap').addEventListener('dragover', e => e.preventDefault());
+    document.getElementById('wrap').addEventListener('drop', async e => {
+      e.preventDefault();
+      const file = e.dataTransfer.files[0];
+      if (file?.type === 'application/pdf') {
+        const dt = new DataTransfer();
+        dt.items.add(file);
+        document.getElementById('file-input').files = dt.files;
+        document.getElementById('file-input').dispatchEvent(new Event('change'));
+      }
+    });
+
+    async function renderPDF(file) {
+      const buf = await file.arrayBuffer();
+      pdfDoc = await pdfjsLib.getDocument({ data: buf }).promise;
+      const page = await pdfDoc.getPage(1);
+      const base = page.getViewport({ scale: 1, rotation: 0 });
+      pdfW = base.width;
+      pdfH = base.height;
+      pdfRot = ((page.rotate || 0) % 360 + 360) % 360;
+
+      const vp = page.getViewport({ scale: pageScale, rotation: pdfRot });
+      const canvas = document.getElementById('pdf-canvas');
+      canvas.width = vp.width;
+      canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+
+      const svg = document.getElementById('svg-overlay');
+      svg.setAttribute('width', vp.width);
+      svg.setAttribute('height', vp.height);
+      svg.style.width = vp.width + 'px';
+      svg.style.height = vp.height + 'px';
+
+      setStat(`${file.name.toUpperCase()} · READY`);
+    }
+
+    async function fetchAnnotations(file) {
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const res = await fetch(API_ENDPOINT, { method: 'POST', body: fd, signal: AbortSignal.timeout(30000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const raw = Array.isArray(data) ? data : (data.annotations || []);
+        annotations = raw.map(normalise);
+        setStat(`API · ${annotations.length} DUCTS`);
+      } catch (e) {
+        setStat(`API OFFLINE · DRAW MODE READY`);
+      }
+      renderAll();
+      buildPanel();
+    }
+
+    // ─── Coordinate helpers ────────────────────────────────────────────────────
+    // PDF pts → SVG pixels  (pdfplumber style: top-left origin, y down)
+    function pdfToSvg(px, py) {
+      let rx = px, ry = py;
+      if (pdfRot === 90) { rx = pdfH - py; ry = px; }
+      else if (pdfRot === 180) { rx = pdfW - px; ry = pdfH - py; }
+      else if (pdfRot === 270) { rx = py; ry = pdfW - px; }
+      return { x: rx * pageScale, y: ry * pageScale };
+    }
+
+    // SVG pixels → PDF pts
+    function svgToPdf(sx, sy) {
+      const rx = sx / pageScale, ry = sy / pageScale;
+      if (pdfRot === 90) return { x: ry, y: pdfH - rx };
+      if (pdfRot === 180) return { x: pdfW - rx, y: pdfH - ry };
+      if (pdfRot === 270) return { x: pdfW - ry, y: rx };
+      return { x: rx, y: ry };
+    }
+
+    // Get SVG-relative coords from a MouseEvent
+    function svgCoords(e) {
+      const svg = document.getElementById('svg-overlay');
+      const rect = svg.getBoundingClientRect();
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      };
+    }
+
+    // ─── Draw mode ─────────────────────────────────────────────────────────────
+    function toggleDrawMode() {
+      drawMode = !drawMode;
+      const btn = document.getElementById('btn-draw');
+      const badge = document.getElementById('mode-badge');
+      const svg = document.getElementById('svg-overlay');
+
+      if (drawMode) {
+        btn.classList.add('draw-on');
+        btn.textContent = '✏ DRAW ON';
+        badge.className = 'draw';
+        badge.textContent = 'DRAW MODE';
+        svg.classList.add('mode-draw');
+        svg.classList.remove('mode-view');
+        setStat('DRAW MODE · DRAG ON A DUCT TO ANNOTATE');
+      } else {
+        btn.classList.remove('draw-on');
+        btn.textContent = '✏ DRAW MODE';
+        badge.className = 'view';
+        badge.textContent = 'VIEW MODE';
+        svg.classList.remove('mode-draw');
+        svg.classList.add('mode-view');
+        setStat(`${annotations.length} ANNOTATIONS`);
+      }
+    }
+
+    // ─── Mouse events — CRITICAL: bind move+up to WINDOW ──────────────────────
+    // This is the fix: if we bind to the SVG, fast drags that leave the
+    // element boundary trigger 'mouseleave' before 'mouseup', killing the draft.
+    // Binding to window guarantees we always receive the final mouseup.
+
+    const svg = document.getElementById('svg-overlay');
+
+    svg.addEventListener('mousedown', e => {
+      if (!drawMode || e.button !== 0) return;
+      e.preventDefault();
+
+      const { x, y } = svgCoords(e);
+      drag.active = true;
+      drag.startX = x;
+      drag.startY = y;
+
+      // Create preview line
+      drag.draftEl = makeSvgEl('line', {
+        x1: x, y1: y, x2: x, y2: y,
+        stroke: '#A78BFA', 'stroke-width': 2.5,
+        'stroke-dasharray': '8 4',
+        opacity: 0.85, 'stroke-linecap': 'round',
+        'pointer-events': 'none'
+      });
+      svg.appendChild(drag.draftEl);
+    });
+
+    // ── mousemove on WINDOW (not SVG) ──────────────────────────────────────────
+    window.addEventListener('mousemove', e => {
+      if (!drag.active || !drag.draftEl) return;
+      const { x, y } = svgCoords(e);
+      drag.draftEl.setAttribute('x2', x);
+      drag.draftEl.setAttribute('y2', y);
+    });
+
+    // ── mouseup on WINDOW — this COMMITS the line ──────────────────────────────
+    window.addEventListener('mouseup', e => {
+      if (!drag.active) return;
+      drag.active = false;
+
+      const { x: ex, y: ey } = svgCoords(e);
+      const dx = ex - drag.startX;
+      const dy = ey - drag.startY;
+
+      // Remove preview line
+      if (drag.draftEl) {
+        drag.draftEl.remove();
+        drag.draftEl = null;
+      }
+
+      // Ignore tiny accidental clicks (< 10px)
+      if (Math.sqrt(dx * dx + dy * dy) < 10) return;
+
+      // Convert endpoints to PDF pts
+      const p1 = svgToPdf(drag.startX, drag.startY);
+      const p2 = svgToPdf(ex, ey);
+
+      // Store pending and show modal
+      pending = {
+        svgX1: drag.startX, svgY1: drag.startY,
+        svgX2: ex, svgY2: ey,
+        pdfX1: Math.round(p1.x), pdfY1: Math.round(p1.y),
+        pdfX2: Math.round(p2.x), pdfY2: Math.round(p2.y),
+      };
+
+      openModal();
+    });
+
+    // ─── Modal ─────────────────────────────────────────────────────────────────
+    function openModal() {
+      if (!pending) return;
+      const { pdfX1, pdfY1, pdfX2, pdfY2 } = pending;
+      const orientation = Math.abs(pdfX2 - pdfX1) >= Math.abs(pdfY2 - pdfY1) ? 'horizontal' : 'vertical';
+
+      document.getElementById('m-label').value = '';
+      document.getElementById('m-pressure').value = 'LOW';
+      document.getElementById('m-coords').innerHTML =
+        `x0: ${pdfX1}&nbsp;&nbsp;y0: ${pdfY1}<br>x1: ${pdfX2}&nbsp;&nbsp;y1: ${pdfY2}<br>` +
+        `orientation: ${orientation}`;
+
+      document.getElementById('modal-overlay').classList.remove('hidden');
+      setTimeout(() => document.getElementById('m-label').focus(), 50);
+    }
+
+    function cancelModal() {
+      pending = null;
+      document.getElementById('modal-overlay').classList.add('hidden');
+    }
+
+    function confirmModal() {
+      if (!pending) return;
+      const label = document.getElementById('m-label').value.trim() || 'UNLABELED';
+      const pressure = document.getElementById('m-pressure').value;
+      const { pdfX1, pdfY1, pdfX2, pdfY2 } = pending;
+      const orientation = Math.abs(pdfX2 - pdfX1) >= Math.abs(pdfY2 - pdfY1) ? 'horizontal' : 'vertical';
+
+      const ann = {
+        id: 'manual_' + Date.now(),
+        label,
+        pressure_class: pressure,
+        dimension: label,
+        orientation,
+        confidence: 1.0,
+        source: 'manual',
+        isManual: true,
+        bbox: [
+          Math.min(pdfX1, pdfX2), Math.min(pdfY1, pdfY2),
+          Math.max(pdfX1, pdfX2), Math.max(pdfY1, pdfY2)
+        ],
+        // Store exact line endpoints (not just bbox) for precise rendering
+        linePts: { x1: pdfX1, y1: pdfY1, x2: pdfX2, y2: pdfY2 }
+      };
+
+      annotations.push(ann);
+      pending = null;
+      document.getElementById('modal-overlay').classList.add('hidden');
+
+      renderAll();
+      buildPanel();
+      setStat(`${annotations.length} ANNOTATIONS · ${annotations.filter(a => a.isManual).length} MANUAL`);
+    }
+
+    // Enter key submits modal
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !document.getElementById('modal-overlay').classList.contains('hidden')) {
+        confirmModal();
+      }
+      if (e.key === 'Escape') cancelModal();
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedId &&
+        document.getElementById('modal-overlay').classList.contains('hidden')) {
+        deleteAnnotation(selectedId);
+      }
+    });
+
+    // ─── Render annotations ────────────────────────────────────────────────────
+    function renderAll() {
+      const overlay = document.getElementById('svg-overlay');
+      // Remove all annotation groups (keep nothing else)
+      overlay.querySelectorAll('.ann-g').forEach(el => el.remove());
+
+      const visible = annotations.filter(a =>
+        activeFilter === 'all' || a.pressure_class === activeFilter
+      );
+
+      visible.forEach(ann => {
+        const g = makeSvgEl('g', { class: 'ann-g' });
+        g.dataset.id = ann.id;
+
+        const col = ann.isManual ? '#A78BFA' : (PC[ann.pressure_class] || '#3B82F6');
+        let sx1, sy1, sx2, sy2;
+
+        if (ann.linePts) {
+          // Manual: use stored exact endpoints
+          const p1 = pdfToSvg(ann.linePts.x1, ann.linePts.y1);
+          const p2 = pdfToSvg(ann.linePts.x2, ann.linePts.y2);
+          sx1 = p1.x; sy1 = p1.y; sx2 = p2.x; sy2 = p2.y;
+        } else {
+          // API: use bbox centerline
+          const b = ann.bbox;
+          const p1 = pdfToSvg(b[0], (b[1] + b[3]) / 2);
+          const p2 = pdfToSvg(b[2], (b[1] + b[3]) / 2);
+          sx1 = p1.x; sy1 = p1.y; sx2 = p2.x; sy2 = p2.y;
+        }
+
+        const mx = (sx1 + sx2) / 2, my = (sy1 + sy2) / 2;
+
+        // Glow
+        g.appendChild(makeSvgEl('line', {
+          x1: sx1, y1: sy1, x2: sx2, y2: sy2,
+          stroke: col, 'stroke-width': 8, opacity: .12, 'stroke-linecap': 'round', 'pointer-events': 'none'
+        }));
+
+        // Hit area (wide invisible line — handles the click)
+        const hit = makeSvgEl('line', {
+          x1: sx1, y1: sy1, x2: sx2, y2: sy2,
+          stroke: 'transparent', 'stroke-width': 18, 'stroke-linecap': 'round', cursor: 'pointer'
+        });
+        g.appendChild(hit);
+
+        // Animated dashed line
+        const ln = makeSvgEl('line', {
+          x1: sx1, y1: sy1, x2: sx2, y2: sy2,
+          stroke: col, 'stroke-width': ann.isManual ? 2.5 : 2,
+          'stroke-dasharray': '10 5', opacity: .9, 'stroke-linecap': 'round', 'pointer-events': 'none'
+        });
+        ln.style.animation = 'march 0.7s linear infinite';
+        g.appendChild(ln);
+
+        // End dots
+        [[sx1, sy1], [sx2, sy2]].forEach(([cx, cy]) =>
+          g.appendChild(makeSvgEl('circle', { cx, cy, r: 4, fill: col, opacity: .9, 'pointer-events': 'none' }))
+        );
+
+        // Label chip
+        g.appendChild(makeChip(mx, my - 14, ann.label, col));
+
+        // Events
+        hit.addEventListener('mouseenter', ev => showTT(ev, ann, col));
+        hit.addEventListener('mousemove', ev => moveTT(ev));
+        hit.addEventListener('mouseleave', hideTT);
+        hit.addEventListener('click', () => {
+          selectedId = ann.id;
+          highlight(ann.id);
+          // In view mode, clicking prompts edit
+          if (!drawMode) editAnnotation(ann);
+        });
+
+        overlay.appendChild(g);
+      });
+    }
+
+    // ─── SVG helpers ───────────────────────────────────────────────────────────
+    function makeSvgEl(tag, attrs = {}) {
+      const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+      for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+      return el;
+    }
+
+    function makeChip(x, y, text, col) {
+      const g = makeSvgEl('g');
+      const fs = 11, pad = 5;
+      const tw = text.length * 7 + pad * 2;
+      const r = makeSvgEl('rect', {
+        x: x - tw / 2, y: y - fs - pad, width: tw, height: fs + pad * 2,
+        rx: 3, fill: '#07090dee', stroke: col, 'stroke-width': 1, 'pointer-events': 'none'
+      });
+      const t = makeSvgEl('text', {
+        x, y, 'text-anchor': 'middle', 'font-size': fs,
+        'font-family': 'Share Tech Mono,monospace', fill: col,
+        'letter-spacing': 1, 'pointer-events': 'none'
+      });
+      t.textContent = text;
+      g.appendChild(r); g.appendChild(t);
+      return g;
+    }
+
+    // ─── Side panel ────────────────────────────────────────────────────────────
+    function buildPanel() {
+      const list = document.getElementById('list');
+      list.innerHTML = '';
+      document.getElementById('cnt').textContent = annotations.length;
+
+      annotations.forEach(ann => {
+        const col = ann.isManual ? '#A78BFA' : (PC[ann.pressure_class] || '#3B82F6');
+        const d = document.createElement('div');
+        d.className = 'di' + (ann.isManual ? ' manual-item' : '');
+        d.dataset.id = ann.id;
+        d.innerHTML = `
+      <div class="di-dot" style="background:${col};box-shadow:0 0 5px ${col}"></div>
+      <div class="di-lbl">${ann.label}</div>
+      <div class="di-p" style="color:${col}">${ann.pressure_class}</div>
+      <div class="di-del" title="Delete" onclick="event.stopPropagation();deleteAnnotation('${ann.id}')">✕</div>`;
+        d.addEventListener('click', () => { selectedId = ann.id; highlight(ann.id); });
+        list.appendChild(d);
+      });
+    }
+
+    function highlight(id) {
+      document.querySelectorAll('.di').forEach(e => e.classList.toggle('on', e.dataset.id === id));
+      document.querySelector(`.di[data-id="${id}"]`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    // ─── Tooltip ───────────────────────────────────────────────────────────────
+    function showTT(e, ann, col) {
+      document.getElementById('tt-lbl').textContent = ann.label;
+      const b = document.getElementById('tt-pres');
+      b.textContent = ann.pressure_class; b.style.background = col + '22'; b.style.color = col;
+      const bp = ann.linePts || {};
+      document.getElementById('tt-coords').textContent =
+        ann.linePts
+          ? `(${bp.x1},${bp.y1}) → (${bp.x2},${bp.y2})`
+          : `bbox [${ann.bbox?.map(v => Math.round(v)).join(', ')}]`;
+      document.getElementById('tt-orient').textContent = ann.orientation || '—';
+      document.getElementById('tt-src').textContent = ann.source || 'api';
+      moveTT(e);
+      document.getElementById('tt').classList.add('on');
+      highlight(ann.id);
+    }
+    function moveTT(e) {
+      const tt = document.getElementById('tt');
+      const W = window.innerWidth, H = window.innerHeight;
+      const tw = tt.offsetWidth || 220, th = tt.offsetHeight || 170;
+      let lx = e.clientX + 16, ly = e.clientY + 16;
+      if (lx + tw > W - 8) lx = e.clientX - tw - 16;
+      if (ly + th > H - 8) ly = e.clientY - th - 16;
+      tt.style.left = lx + 'px'; tt.style.top = ly + 'px';
+    }
+    function hideTT() { document.getElementById('tt').classList.remove('on'); }
+
+    // ─── Edit / Delete ─────────────────────────────────────────────────────────
+    function editAnnotation(ann) {
+      const label = window.prompt('Edit label:', ann.label);
+      if (label === null) return;
+      const pressure = window.prompt('Pressure class (LOW/MEDIUM/HIGH):', ann.pressure_class);
+      if (pressure === null) return;
+      ann.label = label.trim() || ann.label;
+      ann.dimension = ann.label;
+      ann.pressure_class = ['LOW', 'MEDIUM', 'HIGH'].includes(pressure?.toUpperCase())
+        ? pressure.toUpperCase() : ann.pressure_class;
+      renderAll();
+      buildPanel();
+    }
+
+    function deleteAnnotation(id) {
+      annotations = annotations.filter(a => a.id !== id);
+      if (selectedId === id) selectedId = null;
+      renderAll();
+      buildPanel();
+      setStat(`${annotations.length} ANNOTATIONS`);
+    }
+
+    function clearAll() {
+      if (!window.confirm('Clear all annotations?')) return;
+      annotations = [];
+      selectedId = null;
+      renderAll();
+      buildPanel();
+      setStat('CLEARED');
+    }
+
+    // ─── Filter ────────────────────────────────────────────────────────────────
+    function setFilter(f) {
+      activeFilter = f;
+      ['all', 'low', 'med', 'high'].forEach(k => document.getElementById('btn-' + k)?.classList.remove('on'));
+      const map = { all: 'btn-all', LOW: 'btn-low', MEDIUM: 'btn-med', HIGH: 'btn-high' };
+      document.getElementById(map[f] || 'btn-all')?.classList.add('on');
+      renderAll();
+    }
+
+    // ─── Normalise API annotation ──────────────────────────────────────────────
+    function normalise(raw) {
+      let bbox;
+      if (raw.bbox && typeof raw.bbox === 'object' && !Array.isArray(raw.bbox)) {
+        bbox = [raw.bbox.x0, raw.bbox.y0, raw.bbox.x1, raw.bbox.y1];
+      } else if (Array.isArray(raw.bbox)) {
+        bbox = raw.bbox;
+      } else {
+        bbox = [0, 0, 0, 0];
+      }
+
+      const source = raw.source || 'api';
+      const isManual = source === 'manual' || raw.isManual === true;
+
+      return {
+        id: String(raw.id || ('api_' + Math.random())),
+        label: raw.label || raw.dimension || 'UNLABELED',
+        pressure_class: raw.pressure_class || 'LOW',
+        dimension: raw.dimension || raw.label || '',
+        orientation: raw.orientation || 'horizontal',
+        confidence: raw.confidence ?? 0.5,
+        source: source,
+        isManual: isManual,
+        bbox,
+        linePts: raw.line || raw.linePts || null
+      };
+    }
+
+    // ─── Export JSON ───────────────────────────────────────────────────────────
+    function exportJSON() {
+      if (!annotations.length) { setStat('NOTHING TO EXPORT'); return; }
+
+      const payload = {
+        page_count: 1,
+        duct_count: annotations.length,
+        annotations: annotations.map(a => ({
+          id: a.id,
+          label: a.label,
+          dimension: a.dimension || a.label,
+          pressure_class: a.pressure_class,
+          orientation: a.orientation || 'horizontal',
+          confidence: a.confidence,
+          source: a.source,
+          bbox: {
+            x0: a.linePts ? Math.min(a.linePts.x1, a.linePts.x2) : a.bbox[0],
+            y0: a.linePts ? Math.min(a.linePts.y1, a.linePts.y2) : a.bbox[1],
+            x1: a.linePts ? Math.max(a.linePts.x1, a.linePts.x2) : a.bbox[2],
+            y1: a.linePts ? Math.max(a.linePts.y1, a.linePts.y2) : a.bbox[3],
+            page: 0
+          },
+          // Extra field: exact line endpoints (more precise than bbox)
+          line: a.linePts ? {
+            x1: a.linePts.x1, y1: a.linePts.y1,
+            x2: a.linePts.x2, y2: a.linePts.y2
+          } : null
+        }))
+      };
+
+      const json = JSON.stringify(payload, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,' + encodeURIComponent(json);
+      const a = document.createElement('a');
+      a.href = dataUri;
+      a.download = 'duct_annotations.json';
+      a.style.display = 'none';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setStat(`EXPORTED ${annotations.length} ANNOTATIONS`);
+    }
+
+    // ─── Utils ─────────────────────────────────────────────────────────────────
+    function setStat(msg) { document.getElementById('stat').textContent = msg; }
+
+    // Init
+    document.getElementById('btn-all').classList.add('on');
+  </script>
+</body>
+
+</html>

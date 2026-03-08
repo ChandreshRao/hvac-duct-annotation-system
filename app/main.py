@@ -9,6 +9,7 @@ import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.routers.annotations import router as annotations_router
 from app.services.manual_annotation_store import initialize_manual_annotation_store
@@ -51,6 +52,14 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(annotations_router)
+
+    # Mount the viewer directory so the frontend can be accessed via the API server
+    import os
+    viewer_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "viewer")
+    if os.path.isdir(viewer_dir):
+        app.mount("/viewer", StaticFiles(directory=viewer_dir), name="viewer")
+    else:
+        logger.warning(f"Viewer directory not found at {viewer_dir}, skipping static mount.")
 
     @app.on_event("startup")
     async def _startup() -> None:

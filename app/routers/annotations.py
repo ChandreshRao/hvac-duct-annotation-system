@@ -7,6 +7,7 @@ GET  /api/v1/health     – simple health/readiness probe
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -527,6 +528,19 @@ async def annotate_pdf(
     5. Run rules-based text extraction; fall back to GPT-4o when needed.
     6. Return all duct annotations.
     """
+    if os.getenv("USE_HARDCODED_RESPONSE_API", "false").lower() == "true":
+        hardcoded_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 
+            "sample", 
+            "response_hardcoded.json"
+        )
+        if os.path.exists(hardcoded_path):
+            with open(hardcoded_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            return AnnotationResponse(**data)
+        else:
+            logger.warning("Hardcoded response requested but file not found: %s", hardcoded_path)
+
     # ------------------------------------------------------------------
     # 1. Validate upload
     # ------------------------------------------------------------------

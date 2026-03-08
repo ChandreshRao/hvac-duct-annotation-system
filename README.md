@@ -72,6 +72,17 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 Interactive docs → http://localhost:8000/docs
 
+### 4. Use the Viewer
+
+The frontend UI is served automatically by the FastAPI backend at:
+**http://localhost:8000/viewer/duct_annotator.html**
+
+Features:
+- **UPLOAD PDF**: Drag & drop or select an HVAC PDF to annotate.
+- **DRAW MODE**: Click and drag to manually draw lines on un-detected ducts. 
+- **EXPORT JSON**: Saves all annotations (both API-detected and manually drawn) to a `duct_annotations.json` file.
+- **API Hardcoding**: Set `USE_HARDCODED_RESPONSE_API=true` in `.env` to bypass API processing and load annotations directly from `sample/response_hardcoded.json` for frontend testing and debugging.
+
 ---
 
 ## API Reference
@@ -293,20 +304,28 @@ Returns `{"status": "ok"}`.
 ```
 hvac-duct-annotation-system/
 ├── app/
-│   ├── main.py                  # FastAPI app factory
+│   ├── main.py                  # FastAPI app factory with StaticFiles mount
 │   ├── core/
 │   │   └── config.py            # pydantic-settings config
 │   ├── models/
 │   │   └── schemas.py           # Pydantic request/response models
 │   ├── routers/
-│   │   └── annotations.py       # /api/v1/annotate endpoint
+│   │   └── annotations.py       # API endpoints (/annotate, /manual-annotations)
 │   └── services/
 │       ├── pdf_parser.py        # PyMuPDF line + text extraction
 │       ├── duct_detector.py     # Parallel-line duct detection
 │       ├── image_cropper.py     # PDF region → PNG crop
 │       ├── duct_text_extractor.py # Rules-based text extraction + pressure rules
+│       ├── manual_annotation_store.py # SQLite CRUD ops for manual corrections
 │       └── gpt_analyzer.py      # GPT-4o vision analysis
+├── viewer/
+│   └── duct_annotator.html      # Interactive frontend web UI
+├── sample/
+│   ├── response_hardcoded.json  # Fallback JSON structure for UI debugging
+│   └── testset2.pdf             # Example PDF drawing
 ├── requirements.txt
+├── Dockerfile                   # Docker build instructions
+├── docker-compose.yml           # Compose file for API + OCR service
 ├── .env.example
 └── README.md
 ```
@@ -333,17 +352,4 @@ Then set in `.env`:
 ENABLE_OCR_EXTRACTION=true
 USE_OCR_SERVICE=true
 OCR_SERVICE_URL=http://ocr-service:8081/ocr   # use this when API runs in compose
-```
-
-```
-Reading Mechanical Drawing
-Medium
-Problem Statement
-Given is an engineering mechanical drawing for an HVAC system. We need a system that is able to read the ducts in the drawing, 
-annotate the ducts with lines, and is able to provide the dimensions of that duct. 
-For example, in the given sample, the 14"⌀ duct, which should be annotated 
-when the user clicks on the annotated line must show us the dimension of that duct as 14"⌀. 
-Additionally, the system should also identify the pressure class of each duct here (low pressure / medium pressure / high pressure )
-Input file: https://drive.google.com/file/d/1n-2orOHQC1xLU8UZXB06PvGkPqjjc--_/view?usp=sharing
-Sample annotation: https://drive.google.com/file/d/1ntLkSKRTDbCzYrQrI78arNHdIsy2LpTe/view?usp=sharing
 ```
