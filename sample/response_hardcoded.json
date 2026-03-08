@@ -1,0 +1,226 @@
+{
+    "page_count": 1,
+    "duct_count": 10,
+    "annotations": [
+        {
+            "id": "manual_1772994385882",
+            "label": "18\"⌀",
+            "dimension": "18\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1271,
+                "y0": 613,
+                "x1": 1273,
+                "y1": 953,
+                "page": 0
+            },
+            "line": {
+                "x1": 1273,
+                "y1": 613,
+                "x2": 1271,
+                "y2": 953
+            }
+        },
+        {
+            "id": "manual_1772994462579",
+            "label": "8\"⌀",
+            "dimension": "8\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1199,
+                "y0": 453,
+                "x1": 1200,
+                "y1": 657,
+                "page": 0
+            },
+            "line": {
+                "x1": 1200,
+                "y1": 453,
+                "x2": 1199,
+                "y2": 657
+            }
+        },
+        {
+            "id": "manual_1772994474119",
+            "label": "14\"⌀",
+            "dimension": "14\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1201,
+                "y0": 1261,
+                "x1": 1203,
+                "y1": 1710,
+                "page": 0
+            },
+            "line": {
+                "x1": 1201,
+                "y1": 1261,
+                "x2": 1203,
+                "y2": 1710
+            }
+        },
+        {
+            "id": "manual_1772994485155",
+            "label": "14\"⌀",
+            "dimension": "14\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 971,
+                "y0": 1267,
+                "x1": 974,
+                "y1": 1709,
+                "page": 0
+            },
+            "line": {
+                "x1": 971,
+                "y1": 1267,
+                "x2": 974,
+                "y2": 1709
+            }
+        },
+        {
+            "id": "manual_1772994506130",
+            "label": "8\"⌀",
+            "dimension": "8\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1055,
+                "y0": 445,
+                "x1": 1056,
+                "y1": 621,
+                "page": 0
+            },
+            "line": {
+                "x1": 1056,
+                "y1": 445,
+                "x2": 1055,
+                "y2": 621
+            }
+        },
+        {
+            "id": "manual_1772994513873",
+            "label": "12\"⌀",
+            "dimension": "12\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1054,
+                "y0": 657,
+                "x1": 1056,
+                "y1": 735,
+                "page": 0
+            },
+            "line": {
+                "x1": 1054,
+                "y1": 657,
+                "x2": 1056,
+                "y2": 735
+            }
+        },
+        {
+            "id": "manual_1772994524273",
+            "label": "14\"⌀",
+            "dimension": "14\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1129,
+                "y0": 896,
+                "x1": 1129,
+                "y1": 917,
+                "page": 0
+            },
+            "line": {
+                "x1": 1129,
+                "y1": 896,
+                "x2": 1129,
+                "y2": 917
+            }
+        },
+        {
+            "id": "manual_1772994538472",
+            "label": "12\"⌀",
+            "dimension": "12\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1091,
+                "y0": 947,
+                "x1": 1091,
+                "y1": 998,
+                "page": 0
+            },
+            "line": {
+                "x1": 1091,
+                "y1": 947,
+                "x2": 1091,
+                "y2": 998
+            }
+        },
+        {
+            "id": "manual_1772994562990",
+            "label": "12\"⌀",
+            "dimension": "12\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1199,
+                "y0": 691,
+                "x1": 1200,
+                "y1": 735,
+                "page": 0
+            },
+            "line": {
+                "x1": 1200,
+                "y1": 691,
+                "x2": 1199,
+                "y2": 735
+            }
+        },
+        {
+            "id": "manual_1772994572303",
+            "label": "12\"⌀",
+            "dimension": "12\"⌀",
+            "pressure_class": "LOW",
+            "orientation": "vertical",
+            "confidence": 1,
+            "source": "manual",
+            "bbox": {
+                "x0": 1129,
+                "y0": 856,
+                "x1": 1130,
+                "y1": 873,
+                "page": 0
+            },
+            "line": {
+                "x1": 1129,
+                "y1": 856,
+                "x2": 1130,
+                "y2": 873
+            }
+        }
+    ]
+}

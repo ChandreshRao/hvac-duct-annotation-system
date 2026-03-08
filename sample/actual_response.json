@@ -1,0 +1,152 @@
+{
+    "page_count": 1,
+    "duct_count": 7,
+    "annotations": [
+        {
+            "id": 34430,
+            "bbox": {
+                "x0": 1202.8800048828125,
+                "y0": 607.2598876953125,
+                "x1": 1296.239990234375,
+                "y1": 1083.659912109375,
+                "page": 0
+            },
+            "label": "24X18X8.62  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "24X18X8.62",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical",
+            "source": null,
+            "line": null
+        },
+        {
+            "id": 39221,
+            "bbox": {
+                "x0": 534.7200317382812,
+                "y0": 66.89990234375,
+                "x1": 582.7200317382812,
+                "y1": 2310.89990234375,
+                "page": 0
+            },
+            "label": "11⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "11⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical",
+            "source": null,
+            "line": null
+        },
+        {
+            "id": -1,
+            "bbox": {
+                "x0": 26.720001220703125,
+                "y0": 2294.89990234375,
+                "x1": 1702.7200927734375,
+                "y1": 2314.89990234375,
+                "page": 0
+            },
+            "label": "8⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "8⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "horizontal",
+            "source": "auto_centerline",
+            "line": {
+                "x1": 36.720001220703125,
+                "y1": 2304.89990234375,
+                "x2": 1692.7200927734375,
+                "y2": 2304.89990234375
+            }
+        },
+        {
+            "id": -2,
+            "bbox": {
+                "x0": 1198.7000732421875,
+                "y0": 2307.320068359375,
+                "x1": 1218.7000732421875,
+                "y1": 2413.89990234375,
+                "page": 0
+            },
+            "label": "8⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "8⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical",
+            "source": "auto_centerline",
+            "line": {
+                "x1": 1208.7000732421875,
+                "y1": 2317.320068359375,
+                "x2": 1208.7000732421875,
+                "y2": 2403.89990234375
+            }
+        },
+        {
+            "id": -3,
+            "bbox": {
+                "x0": 566.7200317382812,
+                "y0": 62.89990234375,
+                "x1": 586.7200317382812,
+                "y1": 2314.89990234375,
+                "page": 0
+            },
+            "label": "11⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "11⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical",
+            "source": "auto_centerline",
+            "line": {
+                "x1": 576.7200317382812,
+                "y1": 72.89990234375,
+                "x2": 576.7200317382812,
+                "y2": 2304.89990234375
+            }
+        },
+        {
+            "id": -4,
+            "bbox": {
+                "x0": 494.72003173828125,
+                "y0": 1286.89990234375,
+                "x1": 514.7200317382812,
+                "y1": 2314.89990234375,
+                "page": 0
+            },
+            "label": "18⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "18⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical",
+            "source": "auto_centerline",
+            "line": {
+                "x1": 504.72003173828125,
+                "y1": 1296.89990234375,
+                "x2": 504.72003173828125,
+                "y2": 2304.89990234375
+            }
+        },
+        {
+            "id": -5,
+            "bbox": {
+                "x0": 297.0,
+                "y0": 1859.9599609375,
+                "x1": 417.0,
+                "y1": 1879.9599609375,
+                "page": 0
+            },
+            "label": "18⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "18⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "horizontal",
+            "source": "synthetic",
+            "line": null
+        }
+    ]
+}
