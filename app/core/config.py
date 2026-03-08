@@ -16,11 +16,13 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # Authentication – supply ONE of the two tokens.
-    # GITHUB_TOKEN takes precedence and routes to GitHub Models endpoint.
+    # Authentication – supply ONE of the tokens.
+    # GITHUB_TOKEN takes precedence and routes to GitHub Models.
+    # ANTHROPIC_API_KEY routes to Anthropic Claude models.
     # OPENAI_API_KEY routes to the standard OpenAI endpoint.
     # ------------------------------------------------------------------
     github_token: str | None = None
+    anthropic_api_key: str | None = None
     openai_api_key: str | None = None
 
     # ------------------------------------------------------------------

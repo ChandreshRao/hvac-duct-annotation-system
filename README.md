@@ -2,7 +2,7 @@
 
 A FastAPI backend that accepts an HVAC mechanical-drawing PDF, detects duct
 regions using PyMuPDF vector geometry, analyses each region with rules-based
-text extraction first, falls back to GPT-4o when rules cannot resolve a
+text extraction first, falls back to an AI provider (GPT-4o / Claude) when rules cannot resolve a
 region, and returns structured annotations.
 
 ---
@@ -68,8 +68,11 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env; set ENABLE_GPT_FALLBACK=true to use GPT fallback.
-# If fallback is enabled, also set GITHUB_TOKEN or OPENAI_API_KEY.
+# Edit .env; set ENABLE_GPT_FALLBACK=true to use an AI provider.
+# If fallback is enabled, supply exactly ONE of the following API keys:
+#    ANTHROPIC_API_KEY (supports Claude series e.g. claude-3-5-sonnet-20241022)
+#    GITHUB_TOKEN      (supports GitHub Models e.g. gpt-4o)
+#    OPENAI_API_KEY    (supports OpenAI e.g. gpt-4o)
 # Optional: set ENABLE_OCR_EXTRACTION=true when PDF text is not embedded.
 # Optional Docker OCR service: set USE_OCR_SERVICE=true and run `docker compose up -d ocr-service`.
 ```
@@ -336,9 +339,10 @@ Returns `{"status": "ok"}`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GITHUB_TOKEN` | – | GitHub PAT for GitHub Models endpoint |
-| `OPENAI_API_KEY` | – | OpenAI API key (used if GITHUB_TOKEN not set) |
-| `GPT_MODEL` | `gpt-4o` | Model name |
+| `GITHUB_TOKEN` | `None` | Automatically activates GitHub Models API |
+| `ANTHROPIC_API_KEY` | `None` | Automatically activates the Anthropic Claude API |
+| `OPENAI_API_KEY` | `None` | Automatically activates the OpenAI API |
+| `GPT_MODEL` | `gpt-4o` | Inference model to use (`gpt-4o`, `claude-3-5-sonnet-20241022`, etc) |
 | `GPT_TIMEOUT_SECONDS` | `60` | HTTP timeout for GPT calls |
 | `ENABLE_GPT_FALLBACK` | `false` | Enables GPT-4o fallback when text rules do not match |
 | `ENABLE_OCR_EXTRACTION` | `false` | Enables OCR text extraction for page 0 when embedded text is insufficient |
