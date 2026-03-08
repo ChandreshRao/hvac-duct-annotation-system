@@ -11,6 +11,7 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY app /app/app
 COPY viewer /app/viewer
 COPY sample /app/sample
+COPY tests /app/tests
 
 EXPOSE 8000
 

@@ -7,6 +7,7 @@ GET  /api/v1/health     – simple health/readiness probe
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -27,6 +28,7 @@ from app.models.schemas import (
     ManualAnnotationListResponse,
     ManualAnnotationRecord,
     ManualAnnotationUpdateRequest,
+    ManualAnnotationBulkCreateRequest,
     PDFPageSize,
     PDFTextResponse,
 )
@@ -45,6 +47,9 @@ from app.services.manual_annotation_store import (
 from app.services.manual_annotation_store import (
     update_manual_annotation as update_manual_annotation_in_store,
 )
+from app.services.manual_annotation_store import (
+    replace_document_annotations as replace_document_annotations_in_store,
+)
 from app.services.pdf_parser import extract_ocr_text_blocks, parse_pdf
 
 logger = logging.getLogger(__name__)
@@ -58,14 +63,9 @@ router = APIRouter(prefix="/api/v1", tags=["annotations"])
 
 def _make_label(dim: str | None, pc: str | None, mat: str | None) -> str:
     """Build a human-readable annotation label from GPT-4o fields."""
-    parts: list[str] = []
     if dim:
-        parts.append(dim)
-    if pc:
-        parts.append(pc)
-    if mat:
-        parts.append(mat)
-    return "  |  ".join(parts) if parts else "Unknown duct"
+        return dim
+    return "Unknown duct"
 
 
 def _bbox_center(x0: float, y0: float, x1: float, y1: float) -> tuple[float, float]:
@@ -442,11 +442,27 @@ async def delete_manual_annotation(annotation_id: int) -> ManualAnnotationDelete
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Manual annotation id={annotation_id} not found",
+            detail=f"Manual annotation ID {annotation_id} not found.",
         )
-
-    logger.info("Deleted manual annotation id=%s", annotation_id)
     return ManualAnnotationDeleteResponse(id=annotation_id, deleted=True)
+
+
+@router.post(
+    "/manual-annotations/bulk",
+    response_model=ManualAnnotationListResponse,
+    summary="Bulk replace manual annotations for a document",
+)
+def bulk_save_manual_annotations(request: ManualAnnotationBulkCreateRequest) -> ManualAnnotationListResponse:
+    records = replace_document_annotations_in_store(
+        document_id=request.document_id,
+        document_name=request.document_name,
+        annotations=request.annotations,
+    )
+    return ManualAnnotationListResponse(
+        document_id=request.document_id,
+        count=len(records),
+        annotations=records,
+    )
 
 
 @router.get(
@@ -542,9 +558,42 @@ async def annotate_pdf(
             logger.warning("Hardcoded response requested but file not found: %s", hardcoded_path)
 
     # ------------------------------------------------------------------
-    # 1. Validate upload
+    # 1. Validate upload & Check Cache
     # ------------------------------------------------------------------
     pdf_bytes = await _read_pdf_upload(file)
+    file_hash = hashlib.md5(pdf_bytes).hexdigest()
+
+    existing_records = list_manual_annotations_from_store(file_hash)
+    if existing_records:
+        logger.info("Cache hit for document %s (%s)", file.filename, file_hash)
+        
+        # We need the page count for the AnnotationResponse, so parse the PDF quickly
+        parse_result = _parse_pdf_or_422(pdf_bytes)
+        
+        cached_annotations = []
+        for r in existing_records:
+            cached_annotations.append(
+                DuctAnnotation(
+                    id=r.id,
+                    bbox=r.bbox,
+                    label=r.label,
+                    pressure_class=r.pressure_class,
+                    dimension=r.dimension,
+                    material=r.material,
+                    confidence=r.confidence,
+                    orientation=r.orientation,
+                    source=r.source,
+                    line=r.line,
+                )
+            )
+            
+        return AnnotationResponse(
+            document_id=file_hash,
+            document_name=file.filename,
+            page_count=parse_result.page_count,
+            duct_count=len(cached_annotations),
+            annotations=cached_annotations,
+        )
 
     # ------------------------------------------------------------------
     # 2. Parse PDF
@@ -706,19 +755,65 @@ async def annotate_pdf(
         # Compute center of original text bbox
         cx = (x0 + x1) / 2.0
         cy = (y0 + y1) / 2.0
-        duct_half_length = 60.0   # 120 pt total length
-        duct_half_thickness = 10.0  # 20 pt total thickness
-
-        if is_vertical:
-            sx0 = cx - duct_half_thickness
-            sy0 = cy - duct_half_length
-            sx1 = cx + duct_half_thickness
-            sy1 = cy + duct_half_length
+        page_num = int(raw_bbox[4]) if len(raw_bbox) > 4 else 0
+        
+        best_line = None
+        matched_line_dict = None
+        
+        # 1. Try to find actual centerlines for round ducts
+        if "⌀" in label or "Ø" in label or "dia" in label.lower() or "ΓîÇ" in label:
+            margin = 30
+            search_x0 = x0 - margin
+            search_y0 = y0 - margin
+            search_x1 = x1 + margin
+            search_y1 = y1 + margin
+            
+            page_lines = lines_by_page.get(page_num, [])
+            best_len = 0
+            
+            import math
+            for seg in page_lines:
+                line_min_x, line_max_x = min(seg.x0, seg.x1), max(seg.x0, seg.x1)
+                line_min_y, line_max_y = min(seg.y0, seg.y1), max(seg.y0, seg.y1)
+                
+                if line_max_x >= search_x0 and line_min_x <= search_x1 and line_max_y >= search_y0 and line_min_y <= search_y1:
+                    length = math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0)
+                    if length > 50 and length > best_len:
+                        best_len = length
+                        best_line = seg
+                        
+        if best_line:
+            # We found a real centerline!
+            sx0 = min(best_line.x0, best_line.x1)
+            sy0 = min(best_line.y0, best_line.y1)
+            sx1 = max(best_line.x0, best_line.x1)
+            sy1 = max(best_line.y0, best_line.y1)
+            
+            matched_line_dict = {
+                "x1": best_line.x0,
+                "y1": best_line.y0,
+                "x2": best_line.x1,
+                "y2": best_line.y1
+            }
+            
+            dx = best_line.x1 - best_line.x0
+            dy = best_line.y1 - best_line.y0
+            orient = "vertical" if abs(dy) > abs(dx) else "horizontal"
         else:
-            sx0 = cx - duct_half_length
-            sy0 = cy - duct_half_thickness
-            sx1 = cx + duct_half_length
-            sy1 = cy + duct_half_thickness
+            # 2. Fall back to synthetic box generation
+            duct_half_length = 60.0
+            duct_half_thickness = 10.0
+            
+            if is_vertical:
+                sx0 = cx - duct_half_thickness
+                sy0 = cy - duct_half_length
+                sx1 = cx + duct_half_thickness
+                sy1 = cy + duct_half_length
+            else:
+                sx0 = cx - duct_half_length
+                sy0 = cy - duct_half_thickness
+                sx1 = cx + duct_half_length
+                sy1 = cy + duct_half_thickness
 
         annotations.append(
             DuctAnnotation(
@@ -728,7 +823,7 @@ async def annotate_pdf(
                     y0=sy0,
                     x1=sx1,
                     y1=sy1,
-                    page=0,
+                    page=page_num,
                 ),
                 label=_make_label(label, pressure_class, None),
                 pressure_class=pressure_class,
@@ -736,6 +831,8 @@ async def annotate_pdf(
                 material=None,
                 confidence=conf,
                 orientation=orient,
+                source="auto_centerline" if best_line else "synthetic",
+                line=matched_line_dict
             )
         )
         next_synthetic_id -= 1
@@ -749,6 +846,8 @@ async def annotate_pdf(
         file.filename,
     )
     return AnnotationResponse(
+        document_id=file_hash,
+        document_name=file.filename,
         page_count=parse_result.page_count,
         duct_count=len(annotations),
         annotations=annotations,

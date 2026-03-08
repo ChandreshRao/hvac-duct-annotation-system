@@ -13,25 +13,35 @@ region, and returns structured annotations.
 POST /api/v1/annotate
          │
          ▼
+  MD5 Hasher & Cache Lookup
+  • Generates MD5 hash of uploaded PDF
+  • Checks SQLite 'manual_annotations' DB for existing records
+  • ON CACHE HIT: Returns AnnotationResponse instantly (skips extraction)
+  • ON CACHE MISS: Proceeds to extraction pipeline
+         │
+         ▼
   PDFParser (PyMuPDF)
-  • extract vector line segments
-  • extract text blocks with positions
+         ▼
+  TextExtractor & OCR Pipeline
+  • Extract embedded text blocks (PyMuPDF)
+  • If text is missing/sparse, fallback to OCR Service (Tesseract)
          │
          ▼
   DuctDetector
-  • find pairs of parallel lines (horizontal & vertical)
-  • apply gap / length / overlap heuristics
-  • non-maximum suppression
+  • Find pairs of parallel lines (horizontal & vertical)
+  • Find single-line centerlines matching '⌀' dimension patterns
+  • Apply gap / length / overlap heuristics
+  • Non-maximum suppression
          │
          ▼
   ImageCropper (PyMuPDF pixmap)
-  • render each page at configurable DPI
-  • crop bounding-box region → PNG bytes
+  • Render each page at configurable DPI
+  • Crop bounding-box region → PNG bytes
          │
          ▼
   DuctTextExtractor (rules-first)
-  • page-0 text span extraction
-  • regex label matching + pressure heuristics
+  • Associate extracted/OCR text spans near geometry
+  • Regex label matching + pressure heuristics
          │
          ▼
   GPT-4o Analyzer (fallback only)
@@ -80,7 +90,7 @@ The frontend UI is served automatically by the FastAPI backend at:
 Features:
 - **UPLOAD PDF**: Drag & drop or select an HVAC PDF to annotate.
 - **DRAW MODE**: Click and drag to manually draw lines on un-detected ducts. 
-- **EXPORT JSON**: Saves all annotations (both API-detected and manually drawn) to a `duct_annotations.json` file.
+- **EXPORT JSON**: Saves all annotations (both API-detected and manually drawn) to a `duct_annotations.json` file AND automatically POSTs the layout to the database cache matching the document's MD5 hash, preserving the exact layout state for future reloads.
 - **API Hardcoding**: Set `USE_HARDCODED_RESPONSE_API=true` in `.env` to bypass API processing and load annotations directly from `sample/response_hardcoded.json` for frontend testing and debugging.
 
 ---
@@ -99,18 +109,34 @@ Features:
 
 ```jsonc
 {
+  "document_id": "6560d6fde3f89dc408393dca4eef8082",
+  "document_name": "testset2.pdf",
   "page_count": 2,
   "duct_count": 14,
   "annotations": [
     {
       "id": 0,
       "bbox": { "x0": 120.5, "y0": 200.1, "x1": 340.0, "y1": 230.4, "page": 0 },
-      "label": "24x12  |  1\"wg  |  galvanized steel",
-      "pressure_class": "1\"wg",
+      "label": "24x12",
+      "pressure_class": "LOW",
       "dimension": "24x12",
       "material": "galvanized steel",
       "confidence": 0.93,
-      "orientation": "horizontal"
+      "orientation": "horizontal",
+      "source": "api",
+      "line": null
+    },
+    {
+      "id": -1,
+      "bbox": { "x0": 550.0, "y0": 100.0, "x1": 550.0, "y1": 300.0, "page": 0 },
+      "label": "18\"⌀",
+      "pressure_class": "HIGH",
+      "dimension": "18\"⌀",
+      "material": null,
+      "confidence": 0.95,
+      "orientation": "vertical",
+      "source": "auto_centerline",
+      "line": { "x1": 550.0, "y1": 100.0, "x2": 550.0, "y2": 300.0 }
     }
   ]
 }
@@ -159,6 +185,34 @@ Query params:
 }
 ```
 
+### `POST /api/v1/manual-annotations/bulk`
+
+Bulk clear and replace ALL manual-annotations natively bound to a document MD5 hash at once.
+
+**Request** – `application/json`
+
+```jsonc
+{
+       "document_id": "6560d6fde3f89dc408393dca4eef8082",
+       "document_name": "testset2.pdf",
+       "annotations": [
+              {
+                     "bbox": { "x0": 1296.0, "y0": 1192.0, "x1": 1709.0, "y1": 1213.0, "page": 0 },
+                     "label": "14\"⌀",
+                     "pressure_class": "HIGH",
+                     "dimension": "14\"⌀",
+                     "material": null,
+                     "confidence": 1.0,
+                     "orientation": "horizontal",
+                     "source": "manual",
+                     "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 }
+              }
+       ]
+}
+```
+
+**Response** – `application/json` (Same as `GET /api/v1/manual-annotations/{document_id}`)
+
 ### `POST /api/v1/manual-annotations`
 
 Save one user-corrected annotation into SQLite for a specific document.
@@ -176,7 +230,9 @@ Save one user-corrected annotation into SQLite for a specific document.
               "dimension": "14\"⌀",
               "material": null,
               "confidence": 1.0,
-              "orientation": "horizontal"
+              "orientation": "horizontal",
+              "source": "manual",
+              "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 }
        }
 }
 ```
@@ -196,6 +252,7 @@ Save one user-corrected annotation into SQLite for a specific document.
        "confidence": 1.0,
        "orientation": "horizontal",
        "source": "manual",
+       "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 },
        "created_at": "2026-03-08T10:20:30.000000+00:00",
        "updated_at": "2026-03-08T10:20:30.000000+00:00"
 }
@@ -224,6 +281,7 @@ Retrieve all saved manual corrections for a document.
                      "confidence": 1.0,
                      "orientation": "horizontal",
                      "source": "manual",
+                     "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 },
                      "created_at": "2026-03-08T10:20:30.000000+00:00",
                      "updated_at": "2026-03-08T10:20:30.000000+00:00"
               }
@@ -246,7 +304,9 @@ Update an existing saved manual correction by annotation id.
               "dimension": "14\"⌀",
               "material": null,
               "confidence": 1.0,
-              "orientation": "horizontal"
+              "orientation": "horizontal",
+              "source": "manual",
+              "line": { "x1": 1300.0, "y1": 1190.0, "x2": 1715.0, "y2": 1215.0 }
        }
 }
 ```

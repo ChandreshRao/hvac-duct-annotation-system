@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import sqlite3
 from datetime import UTC, datetime
+import json
 from pathlib import Path
 from threading import Lock
 
@@ -56,6 +57,8 @@ def initialize_manual_annotation_store() -> None:
                     material TEXT,
                     confidence REAL NOT NULL,
                     orientation TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    line TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )
@@ -89,7 +92,8 @@ def _row_to_record(row: sqlite3.Row) -> ManualAnnotationRecord:
         material=row["material"],
         confidence=float(row["confidence"]),
         orientation=str(row["orientation"]),
-        source="manual",
+        source=str(row["source"]),
+        line=json.loads(row["line"]) if row["line"] else None,
         created_at=str(row["created_at"]),
         updated_at=str(row["updated_at"]),
     )
@@ -139,9 +143,11 @@ def save_manual_annotation(
                 material,
                 confidence,
                 orientation,
+                source,
+                line,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 normalized_document_id,
@@ -157,6 +163,8 @@ def save_manual_annotation(
                 annotation.material,
                 float(annotation.confidence),
                 str(annotation.orientation),
+                str(annotation.source) if annotation.source else "manual",
+                json.dumps(annotation.line) if annotation.line else None,
                 now_iso,
                 now_iso,
             ),
@@ -175,6 +183,75 @@ def save_manual_annotation(
         raise RuntimeError("Failed to read newly saved manual annotation")
 
     return _row_to_record(row)
+
+
+def replace_document_annotations(
+    document_id: str,
+    document_name: str | None,
+    annotations: list[ManualAnnotationPayload],
+) -> list[ManualAnnotationRecord]:
+    """Atomically clears existing annotations for a document and inserts new ones."""
+    initialize_manual_annotation_store()
+
+    normalized_document_id = str(document_id).strip()
+    if not normalized_document_id:
+        raise ValueError("document_id must not be empty")
+
+    normalized_document_name = (str(document_name).strip() if document_name else None) or None
+    now_iso = datetime.now(UTC).isoformat()
+
+    conn = _connect()
+    inserted_ids = []
+    try:
+        # 1. Delete existing
+        conn.execute(
+            "DELETE FROM manual_annotations WHERE document_id = ?",
+            (normalized_document_id,),
+        )
+        
+        # 2. Insert new
+        for annotation in annotations:
+            x0, y0, x1, y1 = _normalized_bbox(annotation)
+            cursor = conn.execute(
+                """
+                INSERT INTO manual_annotations (
+                    document_id, document_name, page,
+                    x0, y0, x1, y1,
+                    label, pressure_class, dimension, material,
+                    confidence, orientation, source, line,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    normalized_document_id,
+                    normalized_document_name,
+                    int(annotation.bbox.page),
+                    x0, y0, x1, y1,
+                    str(annotation.label).strip(),
+                    annotation.pressure_class,
+                    annotation.dimension,
+                    annotation.material,
+                    float(annotation.confidence),
+                    str(annotation.orientation),
+                    str(annotation.source) if annotation.source else "manual",
+                    json.dumps(annotation.line) if annotation.line else None,
+                    now_iso, now_iso,
+                ),
+            )
+            inserted_ids.append(int(cursor.lastrowid))
+            
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    if not inserted_ids:
+        return []
+        
+    # Re-fetch everything we just inserted to return the Records
+    return list_manual_annotations(normalized_document_id)
 
 
 def list_manual_annotations(document_id: str) -> list[ManualAnnotationRecord]:
@@ -227,6 +304,8 @@ def update_manual_annotation(
                 material = ?,
                 confidence = ?,
                 orientation = ?,
+                source = ?,
+                line = ?,
                 updated_at = ?
             WHERE id = ?
             """,
@@ -242,6 +321,8 @@ def update_manual_annotation(
                 annotation.material,
                 float(annotation.confidence),
                 str(annotation.orientation),
+                str(annotation.source) if annotation.source else "manual",
+                json.dumps(annotation.line) if annotation.line else None,
                 now_iso,
                 int(annotation_id),
             ),

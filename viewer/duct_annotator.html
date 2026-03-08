@@ -649,6 +649,7 @@
   <script>
     // ─── Config ────────────────────────────────────────────────────────────────
     const API_ENDPOINT = 'http://localhost:8000/api/v1/annotate';
+    const BULK_ENDPOINT = 'http://localhost:8000/api/v1/manual-annotations/bulk';
     const PC = { HIGH: '#EF4444', MEDIUM: '#F59E0B', LOW: '#10B981' };
 
     pdfjsLib.GlobalWorkerOptions.workerSrc =
@@ -664,6 +665,8 @@
     let activeFilter = 'all';
     let drawMode = false;
     let selectedId = null;
+    let currentDocId = null;
+    let currentDocName = null;
 
     // Drag state — only lives between mousedown and mouseup
     let drag = {
@@ -728,6 +731,8 @@
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const raw = Array.isArray(data) ? data : (data.annotations || []);
+        currentDocId = data.document_id || null;
+        currentDocName = data.document_name || file.name;
         annotations = raw.map(normalise);
         setStat(`API · ${annotations.length} DUCTS`);
       } catch (e) {
@@ -1189,6 +1194,26 @@
       a.click();
       document.body.removeChild(a);
       setStat(`EXPORTED ${annotations.length} ANNOTATIONS`);
+
+      // Also sync to backend SQLite Cache if connected natively
+      if (currentDocId) {
+        setStat('SYNCING STATE TO SERVER...');
+        const bulkPayload = {
+          document_id: currentDocId,
+          document_name: currentDocName,
+          annotations: payload.annotations
+        };
+        fetch(BULK_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bulkPayload)
+        }).then(res => {
+          if (res.ok) setStat('DB SYNC COMPLETE');
+          else setStat('DB SYNC FAILED');
+        }).catch(() => {
+          setStat('DB SYNC ERROR');
+        });
+      }
     }
 
     // ─── Utils ─────────────────────────────────────────────────────────────────
