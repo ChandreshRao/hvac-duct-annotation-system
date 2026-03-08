@@ -676,14 +676,44 @@ async def annotate_pdf(
 
         pressure_class = str(item.get("pressure_class", "LOW")).upper()
 
+        # --- Expand tiny text bboxes into visible duct segments ---
+        # Determine direction from text span metadata
+        direction = item.get("direction", [1.0, 0.0])
+        dx, dy = 1.0, 0.0
+        if isinstance(direction, (list, tuple)) and len(direction) == 2:
+            try:
+                dx, dy = float(direction[0]), float(direction[1])
+            except (TypeError, ValueError):
+                dx, dy = 1.0, 0.0
+
+        is_vertical = abs(dy) > abs(dx)
+        orient = "vertical" if is_vertical else "horizontal"
+
+        # Compute center of original text bbox
+        cx = (x0 + x1) / 2.0
+        cy = (y0 + y1) / 2.0
+        duct_half_length = 60.0   # 120 pt total length
+        duct_half_thickness = 10.0  # 20 pt total thickness
+
+        if is_vertical:
+            sx0 = cx - duct_half_thickness
+            sy0 = cy - duct_half_length
+            sx1 = cx + duct_half_thickness
+            sy1 = cy + duct_half_length
+        else:
+            sx0 = cx - duct_half_length
+            sy0 = cy - duct_half_thickness
+            sx1 = cx + duct_half_length
+            sy1 = cy + duct_half_thickness
+
         annotations.append(
             DuctAnnotation(
                 id=next_synthetic_id,
                 bbox=DuctBBox(
-                    x0=x0,
-                    y0=y0,
-                    x1=x1,
-                    y1=y1,
+                    x0=sx0,
+                    y0=sy0,
+                    x1=sx1,
+                    y1=sy1,
                     page=0,
                 ),
                 label=_make_label(label, pressure_class, None),
@@ -691,7 +721,7 @@ async def annotate_pdf(
                 dimension=label,
                 material=None,
                 confidence=conf,
-                orientation="unknown",
+                orientation=orient,
             )
         )
         next_synthetic_id -= 1
