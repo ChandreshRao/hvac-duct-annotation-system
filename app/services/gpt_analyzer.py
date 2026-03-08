@@ -30,7 +30,7 @@ import httpx
 from app.core.config import settings
 from app.models.schemas import DuctCandidate, GPTDuctAnalysis
 from app.services.duct_text_extractor import (
-    analyze_candidate_via_text_extraction,
+    analyze_candidates_via_text_extraction,
     extract_duct_text_annotations,
 )
 
@@ -178,6 +178,7 @@ async def analyze_all_crops(
     candidates_by_id: dict[int, DuctCandidate],
     concurrency: int = 4,
     pdf_path: str | None = None,
+    extracted_annotations_out: list[dict[str, Any]] | None = None,
 ) -> dict[int, GPTDuctAnalysis]:
     """
     Analyze all cropped duct images using text extraction first.
@@ -200,23 +201,29 @@ async def analyze_all_crops(
     """
     results: dict[int, GPTDuctAnalysis] = {}
     extracted_annotations: list[dict[str, Any]] = []
+    resolved_by_text: dict[int, GPTDuctAnalysis] = {}
 
     if pdf_path:
         try:
-            extracted_annotations = extract_duct_text_annotations(pdf_path)
+            loop = asyncio.get_running_loop()
+            extracted_annotations = await loop.run_in_executor(
+                None,
+                extract_duct_text_annotations,
+                pdf_path,
+            )
+            if extracted_annotations_out is not None:
+                extracted_annotations_out.clear()
+                extracted_annotations_out.extend(extracted_annotations)
+            resolved_by_text = analyze_candidates_via_text_extraction(
+                candidates_by_id,
+                extracted_annotations,
+            )
         except Exception as exc:
             logger.warning("Rules-based text extraction failed: %s", exc)
 
     fallback_crops: dict[int, bytes] = {}
     for cand_id, img in crops.items():
-        cand = candidates_by_id.get(cand_id)
-        if cand is None:
-            continue
-
-        if extracted_annotations:
-            analysis = analyze_candidate_via_text_extraction(cand, extracted_annotations)
-        else:
-            analysis = GPTDuctAnalysis(confidence=0.0)
+        analysis = resolved_by_text.get(cand_id, GPTDuctAnalysis(confidence=0.0))
 
         if analysis.confidence > 0.0:
             results[cand_id] = analysis

@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import BinaryIO
 
 import fitz  # PyMuPDF
+import httpx
 
+from app.core.config import settings
 from app.models.schemas import BoundingBox, LineSegment, TextBlock
 
 logger = logging.getLogger(__name__)
@@ -71,10 +73,13 @@ def _extract_lines_from_path(path: dict, page_num: int) -> list[LineSegment]:
     return segments
 
 
-def _extract_text_blocks(page: fitz.Page, page_num: int) -> list[TextBlock]:
-    """Extract every text span on the page with its bounding rectangle."""
+def _text_blocks_from_raw(
+    raw: dict,
+    page_num: int,
+    source: str = "embedded",
+) -> list[TextBlock]:
+    """Convert a PyMuPDF text dict into TextBlock records."""
     blocks: list[TextBlock] = []
-    raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
     for block in raw.get("blocks", []):
         if block.get("type") != 0:  # 0 = text block
             continue
@@ -92,9 +97,122 @@ def _extract_text_blocks(page: fitz.Page, page_num: int) -> list[TextBlock]:
                         x1=bbox[2],
                         y1=bbox[3],
                         page=page_num,
+                        source=source,
                     )
                 )
     return blocks
+
+
+def _extract_text_blocks(page: fitz.Page, page_num: int) -> list[TextBlock]:
+    """Extract every embedded text span on the page with its bounding rectangle."""
+    raw = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE)
+    return _text_blocks_from_raw(raw, page_num, source="embedded")
+
+
+def _extract_ocr_text_blocks_from_service(page: fitz.Page, page_num: int) -> list[TextBlock]:
+    """Extract OCR spans from external OCR service and map to page coordinates."""
+    ocr_dpi = float(max(300, int(settings.ocr_dpi)))
+    mat = fitz.Matrix(ocr_dpi / 72.0, ocr_dpi / 72.0)
+    pix = page.get_pixmap(matrix=mat, alpha=False)
+    png_bytes = pix.tobytes("png")
+
+    with httpx.Client(timeout=settings.ocr_service_timeout_seconds) as client:
+        resp = client.post(
+            settings.ocr_service_url,
+            files={"file": (f"page-{page_num}.png", png_bytes, "image/png")},
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    service_spans = data.get("spans", [])
+    blocks: list[TextBlock] = []
+    px_to_pt = 72.0 / ocr_dpi
+    needs_derotation = (int(page.rotation) % 360) != 0
+
+    for item in service_spans:
+        text = str(item.get("text", "")).strip()
+        bbox = item.get("bbox")
+        if not text or not isinstance(bbox, list) or len(bbox) != 4:
+            continue
+
+        try:
+            x0_px = float(bbox[0])
+            y0_px = float(bbox[1])
+            x1_px = float(bbox[2])
+            y1_px = float(bbox[3])
+        except (TypeError, ValueError):
+            continue
+
+        x0 = x0_px * px_to_pt
+        y0 = y0_px * px_to_pt
+        x1 = x1_px * px_to_pt
+        y1 = y1_px * px_to_pt
+
+        if needs_derotation:
+            corners = (
+                fitz.Point(x0, y0),
+                fitz.Point(x1, y0),
+                fitz.Point(x1, y1),
+                fitz.Point(x0, y1),
+            )
+            transformed = [point * page.derotation_matrix for point in corners]
+            xs = [point.x for point in transformed]
+            ys = [point.y for point in transformed]
+            x0, x1 = min(xs), max(xs)
+            y0, y1 = min(ys), max(ys)
+
+        blocks.append(
+            TextBlock(
+                text=text,
+                x0=x0,
+                y0=y0,
+                x1=x1,
+                y1=y1,
+                page=page_num,
+                source="ocr",
+            )
+        )
+
+    return blocks
+
+
+def _extract_ocr_text_blocks_local(page: fitz.Page, page_num: int) -> list[TextBlock]:
+    """Extract OCR spans via PyMuPDF local OCR (if available)."""
+    if not hasattr(page, "get_textpage_ocr"):
+        raise RuntimeError("Current PyMuPDF build has no get_textpage_ocr support")
+
+    textpage_ocr = page.get_textpage_ocr(
+        language=settings.ocr_language,
+        dpi=max(300, int(settings.ocr_dpi)),
+        full=True,
+    )
+    raw_ocr = page.get_text(
+        "dict",
+        flags=fitz.TEXT_PRESERVE_WHITESPACE,
+        textpage=textpage_ocr,
+    )
+    return _text_blocks_from_raw(raw_ocr, page_num, source="ocr")
+
+
+def extract_ocr_text_blocks(pdf_bytes: bytes) -> list[TextBlock]:
+    """Extract OCR text spans for all pages and return TextBlock list."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    ocr_blocks: list[TextBlock] = []
+
+    try:
+        for page_num, page in enumerate(doc):
+            try:
+                if settings.use_ocr_service:
+                    page_blocks = _extract_ocr_text_blocks_from_service(page, page_num)
+                else:
+                    page_blocks = _extract_ocr_text_blocks_local(page, page_num)
+                ocr_blocks.extend(page_blocks)
+            except Exception as exc:
+                logger.warning("OCR text extraction failed on page %d: %s", page_num, exc)
+    finally:
+        doc.close()
+
+    return ocr_blocks
 
 
 # ---------------------------------------------------------------------------
@@ -139,7 +257,7 @@ def parse_pdf(source: bytes | str | Path | BinaryIO) -> PDFParseResult:
     result.page_count = len(doc)
 
     for page_num, page in enumerate(doc):
-        rect = page.rect
+        rect = page.cropbox
         result.page_sizes.append((rect.width, rect.height))
 
         # --- Vector paths ---

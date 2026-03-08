@@ -56,6 +56,10 @@ class TextBlock(BaseModel):
     x1: float
     y1: float
     page: int = 0
+    source: str = "embedded"
+    normalized_text: Optional[str] = None
+    normalized_label: Optional[str] = None
+    normalized_variants: list[str] = Field(default_factory=list)
 
 
 class BoundingBox(BaseModel):
@@ -125,3 +129,79 @@ class AnnotationResponse(BaseModel):
     page_count: int
     duct_count: int
     annotations: list[DuctAnnotation]
+
+
+class PDFPageSize(BaseModel):
+    """Page dimensions (PDF points) for one page index."""
+
+    page: int
+    width: float
+    height: float
+
+
+class PDFTextResponse(BaseModel):
+    """Top-level response envelope for the /texts endpoint."""
+
+    page_count: int
+    text_count: int
+    page_sizes: list[PDFPageSize]
+    texts: list[TextBlock]
+
+
+class ManualAnnotationPayload(BaseModel):
+    """Payload for one manually corrected annotation."""
+
+    bbox: DuctBBox
+    label: str
+    pressure_class: Optional[str] = None
+    dimension: Optional[str] = None
+    material: Optional[str] = None
+    confidence: float = Field(1.0, ge=0.0, le=1.0)
+    orientation: str = "manual"
+
+
+class ManualAnnotationCreateRequest(BaseModel):
+    """Request body for saving one manual annotation."""
+
+    document_id: str = Field(..., min_length=1)
+    document_name: Optional[str] = None
+    annotation: ManualAnnotationPayload
+
+
+class ManualAnnotationUpdateRequest(BaseModel):
+    """Request body for updating one saved manual annotation."""
+
+    annotation: ManualAnnotationPayload
+
+
+class ManualAnnotationRecord(BaseModel):
+    """Persisted manual annotation row returned by API."""
+
+    id: int
+    document_id: str
+    document_name: Optional[str] = None
+    bbox: DuctBBox
+    label: str
+    pressure_class: Optional[str] = None
+    dimension: Optional[str] = None
+    material: Optional[str] = None
+    confidence: float = 1.0
+    orientation: str = "manual"
+    source: str = "manual"
+    created_at: str
+    updated_at: str
+
+
+class ManualAnnotationListResponse(BaseModel):
+    """Top-level response envelope for saved manual annotations of one document."""
+
+    document_id: str
+    count: int
+    annotations: list[ManualAnnotationRecord]
+
+
+class ManualAnnotationDeleteResponse(BaseModel):
+    """Response envelope for deleting one saved manual annotation."""
+
+    id: int
+    deleted: bool

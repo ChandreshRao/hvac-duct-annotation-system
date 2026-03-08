@@ -1,0 +1,102 @@
+{
+    "page_count": 1,
+    "duct_count": 6,
+    "annotations": [
+        {
+            "id": 34430,
+            "bbox": {
+                "x0": 1202.8800048828125,
+                "y0": 607.2598876953125,
+                "x1": 1296.239990234375,
+                "y1": 1083.659912109375,
+                "page": 0
+            },
+            "label": "24X18X8.62  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "24X18X8.62",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical"
+        },
+        {
+            "id": 34566,
+            "bbox": {
+                "x0": 1181.820068359375,
+                "y0": 816.5999755859375,
+                "x1": 1264.3800048828125,
+                "y1": 856.8599853515625,
+                "page": 0
+            },
+            "label": "24X18X8.62  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "24X18X8.62",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical"
+        },
+        {
+            "id": 34616,
+            "bbox": {
+                "x0": 1202.8800048828125,
+                "y0": 801.47998046875,
+                "x1": 1250.8800048828125,
+                "y1": 831.47998046875,
+                "page": 0
+            },
+            "label": "24X18X8.62  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "24X18X8.62",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "vertical"
+        },
+        {
+            "id": -1,
+            "bbox": {
+                "x0": 1846.32,
+                "y0": 1245.12,
+                "x1": 1863.84,
+                "y1": 1254.0,
+                "page": 0
+            },
+            "label": "18⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "18⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "unknown"
+        },
+        {
+            "id": -2,
+            "bbox": {
+                "x0": 1817.28,
+                "y0": 1239.36,
+                "x1": 1844.8799999999999,
+                "y1": 1262.6399999999999,
+                "page": 0
+            },
+            "label": "14⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "14⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "unknown"
+        },
+        {
+            "id": -3,
+            "bbox": {
+                "x0": 1846.32,
+                "y0": 1389.12,
+                "x1": 1863.84,
+                "y1": 1398.0,
+                "page": 0
+            },
+            "label": "18⌀  |  HIGH",
+            "pressure_class": "HIGH",
+            "dimension": "18⌀",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "unknown"
+        }
+    ]
+}

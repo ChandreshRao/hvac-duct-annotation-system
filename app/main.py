@@ -11,6 +11,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers.annotations import router as annotations_router
+from app.services.manual_annotation_store import initialize_manual_annotation_store
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
+        initialize_manual_annotation_store()
         logger.info("HVAC Duct Annotation System started.")
 
     @app.on_event("shutdown")

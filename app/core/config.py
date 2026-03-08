@@ -37,6 +37,24 @@ class Settings(BaseSettings):
     enable_gpt_fallback: bool = False
 
     # ------------------------------------------------------------------
+    # OCR extraction settings (optional, disabled by default)
+    # ------------------------------------------------------------------
+    enable_ocr_extraction: bool = False
+    ocr_language: str = "eng"
+    ocr_dpi: int = 300
+    use_ocr_service: bool = False
+    ocr_service_url: str = "http://localhost:8081/ocr"
+    ocr_service_timeout_seconds: float = 30.0
+
+    # ------------------------------------------------------------------
+    # Rules-based text matching tuning (candidate ↔ label association)
+    # ------------------------------------------------------------------
+    text_context_radius_px: float = 100.0
+    text_match_max_distance_px: float = 60.0
+    text_match_bbox_margin_px: float = 24.0
+    max_candidates_per_text_annotation: int = 1
+
+    # ------------------------------------------------------------------
     # Duct detection tuning (can be overridden via env)
     # ------------------------------------------------------------------
     duct_min_gap: float = 4.0
@@ -47,6 +65,7 @@ class Settings(BaseSettings):
     # API settings
     # ------------------------------------------------------------------
     max_upload_size_mb: int = 50
+    manual_annotations_db_path: str = "data/manual_annotations.db"
 
     def validate_auth(self) -> None:
         if not self.github_token and not self.openai_api_key:

@@ -1,0 +1,25 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hvac-duct-api
+    restart: unless-stopped
+    depends_on:
+      - ocr-service
+    env_file:
+      - .env
+    environment:
+      ENABLE_OCR_EXTRACTION: ${ENABLE_OCR_EXTRACTION:-true}
+      USE_OCR_SERVICE: "true"
+      OCR_SERVICE_URL: http://ocr-service:8081/ocr
+    ports:
+      - "8000:8000"
+
+  ocr-service:
+    build:
+      context: ./ocr_service
+    container_name: hvac-ocr-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"

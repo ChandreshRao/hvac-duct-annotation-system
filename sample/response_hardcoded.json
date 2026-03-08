@@ -1,0 +1,22 @@
+{
+    "page_count": 1,
+    "duct_count": 1,
+    "annotations": [
+        {
+            "id": 34430,
+            "bbox": {
+                "x0": 1296,
+                "y0": 1192,
+                "x1": 1709,
+                "y1": 1213,
+                "page": 0
+            },
+            "label": "14\"⌀",
+            "pressure_class": "HIGH",
+            "dimension": "24X18X8.62",
+            "material": null,
+            "confidence": 0.95,
+            "orientation": "horizontal"
+        }
+    ]
+}
