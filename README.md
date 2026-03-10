@@ -15,7 +15,7 @@ POST /api/v1/annotate
          ▼
   MD5 Hasher & Cache Lookup
   • Generates MD5 hash of uploaded PDF
-  • Checks SQLite 'manual_annotations' DB for existing records
+  • Checks SQLite 'manual_annotations_v2' DB for existing records
   • ON CACHE HIT: Returns AnnotationResponse instantly (skips extraction)
   • ON CACHE MISS: Proceeds to extraction pipeline
          │
@@ -24,12 +24,13 @@ POST /api/v1/annotate
          ▼
   TextExtractor & OCR Pipeline
   • Extract embedded text blocks (PyMuPDF)
+  • Merge Document AI JSON (sidecar 'document.json') for high-fidelity OCR
   • If text is missing/sparse, fallback to OCR Service (Tesseract)
          │
          ▼
   DuctDetector
   • Find pairs of parallel lines (horizontal & vertical)
-  • Find single-line centerlines matching '⌀' dimension patterns
+  • Determine exact centerlines using CenterlineTracer (extends to junctions)
   • Apply gap / length / overlap heuristics
   • Non-maximum suppression
          │
@@ -40,7 +41,7 @@ POST /api/v1/annotate
          │
          ▼
   DuctTextExtractor (rules-first)
-  • Associate extracted/OCR text spans near geometry
+  • Associate extracted/OCR/DocAI text spans near geometry
   • Regex label matching + pressure heuristics
          │
          ▼
@@ -74,13 +75,16 @@ cp .env.example .env
 # Optional Docker OCR service: set USE_OCR_SERVICE=true and run `docker compose up -d ocr-service`.
 ```
 
-### 3. Run the server
+### 3. Run with Docker (Recommended)
+
+The system is configured to persist annotations and automatically seed data on startup.
 
 ```bash
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+docker compose up --build -d
 ```
 
-Interactive docs → http://localhost:8000/docs
+- **Persistence**: Database is stored in `./data/manual_annotations_v2.db` and persists across container rebuilds.
+- **Auto-Seeding**: On every startup, `bootstrap_db.py` runs automatically to seed annotations for `testset2.pdf` from `sample/response_hardcoded.json`.
 
 ### 4. Use the Viewer
 
@@ -90,8 +94,17 @@ The frontend UI is served automatically by the FastAPI backend at:
 Features:
 - **UPLOAD PDF**: Drag & drop or select an HVAC PDF to annotate.
 - **DRAW MODE**: Click and drag to manually draw lines on un-detected ducts. 
-- **EXPORT JSON**: Saves all annotations (both API-detected and manually drawn) to a `duct_annotations.json` file AND automatically POSTs the layout to the database cache matching the document's MD5 hash, preserving the exact layout state for future reloads.
-- **API Hardcoding**: Set `USE_HARDCODED_RESPONSE_API=true` in `.env` to bypass API processing and load annotations directly from `sample/response_hardcoded.json` for frontend testing and debugging.
+- **EXPORT JSON**: Saves all annotations (both API-detected and manually drawn) to the database cache matching the document's MD5 hash.
+- **API Hardcoding**: Set `USE_HARDCODED_RESPONSE_API=true` in `.env` to bypass API processing and load annotations directly from `sample/response_hardcoded.json`.
+
+---
+
+## Document AI Integration
+
+The system can ingest high-fidelity text extraction from **Google Cloud Document AI**. To use this:
+1. Place a `document.json` (exported from Document AI) in the same directory as your PDF.
+2. The `DuctTextExtractor` will automatically parse this file and merge its text blocks.
+3. This is particularly useful for capturing round duct dimensions (e.g., 14", 12") that standard PDF text extraction might miss.
 
 ---
 
@@ -135,200 +148,12 @@ Features:
       "material": null,
       "confidence": 0.95,
       "orientation": "vertical",
-      "source": "auto_centerline",
+      "source": "centerline_traced",
       "line": { "x1": 550.0, "y1": 100.0, "x2": 550.0, "y2": 300.0 }
     }
   ]
 }
 ```
-
-### `POST /api/v1/texts`
-
-Upload a PDF and return every extracted text span with coordinates.
-
-Query params:
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `include_ocr` | `bool` | `true` | Merge OCR text spans (service/local OCR) with embedded PDF text |
-| `include_normalized` | `bool` | `true` | Adds `normalized_text`, inferred `normalized_label`, and `normalized_variants` fields per text span |
-
-**Request** – `multipart/form-data`
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `file` | `File` (PDF) | HVAC mechanical drawing |
-
-**Response** – `application/json`
-
-```jsonc
-{
-       "page_count": 1,
-       "text_count": 125,
-       "page_sizes": [
-              { "page": 0, "width": 1728.0, "height": 2592.0 }
-       ],
-       "texts": [
-              {
-                     "text": "14\"⌀",
-                     "x0": 1296.0,
-                     "y0": 1191.0,
-                     "x1": 1709.0,
-                     "y1": 1214.0,
-                     "page": 0,
-                     "source": "ocr",
-                     "normalized_text": "140.04",
-                     "normalized_label": "14⌀",
-                     "normalized_variants": ["14⌀", "14\"Ø", "14\"ø", "14\"⌀", "Ø14", "ø14", "⌀14", "14\"@"]
-              }
-       ]
-}
-```
-
-### `POST /api/v1/manual-annotations/bulk`
-
-Bulk clear and replace ALL manual-annotations natively bound to a document MD5 hash at once.
-
-**Request** – `application/json`
-
-```jsonc
-{
-       "document_id": "6560d6fde3f89dc408393dca4eef8082",
-       "document_name": "testset2.pdf",
-       "annotations": [
-              {
-                     "bbox": { "x0": 1296.0, "y0": 1192.0, "x1": 1709.0, "y1": 1213.0, "page": 0 },
-                     "label": "14\"⌀",
-                     "pressure_class": "HIGH",
-                     "dimension": "14\"⌀",
-                     "material": null,
-                     "confidence": 1.0,
-                     "orientation": "horizontal",
-                     "source": "manual",
-                     "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 }
-              }
-       ]
-}
-```
-
-**Response** – `application/json` (Same as `GET /api/v1/manual-annotations/{document_id}`)
-
-### `POST /api/v1/manual-annotations`
-
-Save one user-corrected annotation into SQLite for a specific document.
-
-**Request** – `application/json`
-
-```jsonc
-{
-       "document_id": "<sha256-or-custom-doc-id>",
-       "document_name": "testset2.pdf",
-       "annotation": {
-              "bbox": { "x0": 1296.0, "y0": 1192.0, "x1": 1709.0, "y1": 1213.0, "page": 0 },
-              "label": "14\"⌀",
-              "pressure_class": "HIGH",
-              "dimension": "14\"⌀",
-              "material": null,
-              "confidence": 1.0,
-              "orientation": "horizontal",
-              "source": "manual",
-              "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 }
-       }
-}
-```
-
-**Response** – `application/json`
-
-```jsonc
-{
-       "id": 1,
-       "document_id": "<sha256-or-custom-doc-id>",
-       "document_name": "testset2.pdf",
-       "bbox": { "x0": 1296.0, "y0": 1192.0, "x1": 1709.0, "y1": 1213.0, "page": 0 },
-       "label": "14\"⌀",
-       "pressure_class": "HIGH",
-       "dimension": "14\"⌀",
-       "material": null,
-       "confidence": 1.0,
-       "orientation": "horizontal",
-       "source": "manual",
-       "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 },
-       "created_at": "2026-03-08T10:20:30.000000+00:00",
-       "updated_at": "2026-03-08T10:20:30.000000+00:00"
-}
-```
-
-### `GET /api/v1/manual-annotations/{document_id}`
-
-Retrieve all saved manual corrections for a document.
-
-**Response** – `application/json`
-
-```jsonc
-{
-       "document_id": "<sha256-or-custom-doc-id>",
-       "count": 1,
-       "annotations": [
-              {
-                     "id": 1,
-                     "document_id": "<sha256-or-custom-doc-id>",
-                     "document_name": "testset2.pdf",
-                     "bbox": { "x0": 1296.0, "y0": 1192.0, "x1": 1709.0, "y1": 1213.0, "page": 0 },
-                     "label": "14\"⌀",
-                     "pressure_class": "HIGH",
-                     "dimension": "14\"⌀",
-                     "material": null,
-                     "confidence": 1.0,
-                     "orientation": "horizontal",
-                     "source": "manual",
-                     "line": { "x1": 1296.0, "y1": 1192.0, "x2": 1709.0, "y2": 1213.0 },
-                     "created_at": "2026-03-08T10:20:30.000000+00:00",
-                     "updated_at": "2026-03-08T10:20:30.000000+00:00"
-              }
-       ]
-}
-```
-
-### `PUT /api/v1/manual-annotations/{annotation_id}`
-
-Update an existing saved manual correction by annotation id.
-
-**Request** – `application/json`
-
-```jsonc
-{
-       "annotation": {
-              "bbox": { "x0": 1300.0, "y0": 1190.0, "x1": 1715.0, "y1": 1215.0, "page": 0 },
-              "label": "14\"⌀",
-              "pressure_class": "HIGH",
-              "dimension": "14\"⌀",
-              "material": null,
-              "confidence": 1.0,
-              "orientation": "horizontal",
-              "source": "manual",
-              "line": { "x1": 1300.0, "y1": 1190.0, "x2": 1715.0, "y2": 1215.0 }
-       }
-}
-```
-
-**Response** – `application/json` (same shape as `POST /manual-annotations`)
-
-### `DELETE /api/v1/manual-annotations/{annotation_id}`
-
-Delete a saved manual correction by annotation id.
-
-**Response** – `application/json`
-
-```jsonc
-{
-       "id": 1,
-       "deleted": true
-}
-```
-
-### `GET /api/v1/health`
-
-Returns `{"status": "ok"}`.
 
 ---
 
@@ -338,24 +163,8 @@ Returns `{"status": "ok"}`.
 |----------|---------|-------------|
 | `GITHUB_TOKEN` | – | GitHub PAT for GitHub Models endpoint |
 | `OPENAI_API_KEY` | – | OpenAI API key (used if GITHUB_TOKEN not set) |
-| `GPT_MODEL` | `gpt-4o` | Model name |
-| `GPT_TIMEOUT_SECONDS` | `60` | HTTP timeout for GPT calls |
-| `ENABLE_GPT_FALLBACK` | `false` | Enables GPT-4o fallback when text rules do not match |
-| `ENABLE_OCR_EXTRACTION` | `false` | Enables OCR text extraction for page 0 when embedded text is insufficient |
-| `OCR_LANGUAGE` | `eng` | OCR language passed to PyMuPDF OCR engine |
-| `OCR_DPI` | `300` | OCR render DPI for text recognition quality |
-| `USE_OCR_SERVICE` | `false` | Use external OCR HTTP service instead of in-process OCR |
-| `OCR_SERVICE_URL` | `http://localhost:8081/ocr` | OCR service endpoint URL |
-| `OCR_SERVICE_TIMEOUT_SECONDS` | `30` | Timeout (seconds) for OCR service calls |
-| `TEXT_CONTEXT_RADIUS_PX` | `100.0` | Radius for nearby text context used in pressure classification |
-| `TEXT_MATCH_MAX_DISTANCE_PX` | `60.0` | Max point-to-candidate distance allowed for text-to-candidate association |
-| `TEXT_MATCH_BBOX_MARGIN_PX` | `24.0` | Candidate bbox expansion margin when checking text containment |
-| `MAX_CANDIDATES_PER_TEXT_ANNOTATION` | `1` | Caps how many candidates a single extracted text label can resolve |
-| `RENDER_DPI` | `150` | PDF render resolution for crops |
-| `DUCT_MIN_GAP` | `4.0` | Min parallel-line gap (PDF points) |
-| `DUCT_MAX_GAP` | `200.0` | Max parallel-line gap (PDF points) |
-| `MAX_UPLOAD_SIZE_MB` | `50` | Maximum PDF upload size |
-| `MANUAL_ANNOTATIONS_DB_PATH` | `data/manual_annotations.db` | SQLite file path for saved manual corrections |
+| `ENABLE_GPT_FALLBACK` | `false` | Enables GPT-4o fallback |
+| `MANUAL_ANNOTATIONS_DB_PATH` | `data/manual_annotations_v2.db` | SQLite path |
 
 ---
 
@@ -364,30 +173,33 @@ Returns `{"status": "ok"}`.
 ```
 hvac-duct-annotation-system/
 ├── app/
-│   ├── main.py                  # FastAPI app factory with StaticFiles mount
+│   ├── main.py                  # FastAPI app entrypoint
 │   ├── core/
 │   │   └── config.py            # pydantic-settings config
 │   ├── models/
-│   │   └── schemas.py           # Pydantic request/response models
+│   │   └── schemas.py           # Pydantic models
 │   ├── routers/
-│   │   └── annotations.py       # API endpoints (/annotate, /manual-annotations)
+│   │   └── annotations.py       # API endpoints
 │   └── services/
-│       ├── pdf_parser.py        # PyMuPDF line + text extraction
-│       ├── duct_detector.py     # Parallel-line duct detection
+│       ├── pdf_parser.py        # PyMuPDF line extraction
+│       ├── duct_detector.py     # Parallel-line detection
+│       ├── centerline_tracer.py # Robust centerline junction tracing
 │       ├── image_cropper.py     # PDF region → PNG crop
-│       ├── duct_text_extractor.py # Rules-based text extraction + pressure rules
-│       ├── manual_annotation_store.py # SQLite CRUD ops for manual corrections
+│       ├── duct_text_extractor.py # Rules-based text OCR association
+│       ├── document_ai_parser.py # Google Cloud Document AI JSON parser
+│       ├── manual_annotation_store.py # SQLite CRUD ops
 │       └── gpt_analyzer.py      # GPT-4o vision analysis
 ├── viewer/
 │   └── duct_annotator.html      # Interactive frontend web UI
 ├── sample/
-│   ├── response_hardcoded.json  # Fallback JSON structure for UI debugging
-│   └── testset2.pdf             # Example PDF drawing
+│   ├── response_hardcoded.json  # Reference results
+│   └── testset2.pdf             # Example drawing
+├── scripts/
+│   └── start.sh                 # Docker entrypoint (auto-seeds DB)
+├── bootstrap_db.py              # Script to seed manual_annotations_v2.db
 ├── requirements.txt
-├── Dockerfile                   # Docker build instructions
-├── docker-compose.yml           # Compose file for API + OCR service
-├── .env.example
-└── README.md
+├── Dockerfile
+└── docker-compose.yml
 ```
 
 ---
@@ -398,18 +210,4 @@ Run a standalone OCR service:
 
 ```bash
 docker compose up -d ocr-service
-```
-
-Run both API and OCR together:
-
-```bash
-docker compose up -d --build
-```
-
-Then set in `.env`:
-
-```dotenv
-ENABLE_OCR_EXTRACTION=true
-USE_OCR_SERVICE=true
-OCR_SERVICE_URL=http://ocr-service:8081/ocr   # use this when API runs in compose
 ```

@@ -46,6 +46,19 @@ class LineSegment(BaseModel):
     y1: float
     page: int = 0
 
+    @property
+    def length(self) -> float:
+        import math
+        return math.sqrt((self.x1 - self.x0)**2 + (self.y1 - self.y0)**2)
+
+    @property
+    def is_horizontal(self) -> bool:
+        return abs(self.y1 - self.y0) < abs(self.x1 - self.x0)
+
+    @property
+    def center(self) -> tuple[float, float]:
+        return (self.x0 + self.x1) / 2.0, (self.y0 + self.y1) / 2.0
+
 
 class TextBlock(BaseModel):
     """A text block extracted from a PDF page."""

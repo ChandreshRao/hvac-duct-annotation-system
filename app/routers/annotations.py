@@ -16,6 +16,7 @@ import re
 import tempfile
 from collections import defaultdict
 
+from app.services.centerline_tracer import trace_from_label, is_round_duct_label
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
@@ -563,7 +564,10 @@ async def annotate_pdf(
     pdf_bytes = await _read_pdf_upload(file)
     file_hash = hashlib.md5(pdf_bytes).hexdigest()
 
-    existing_records = list_manual_annotations_from_store(file_hash)
+    existing_records = []
+    if not settings.disable_annotation_cache:
+        existing_records = list_manual_annotations_from_store(file_hash)
+        
     if existing_records:
         logger.info("Cache hit for document %s (%s)", file.filename, file_hash)
         
@@ -760,46 +764,23 @@ async def annotate_pdf(
         best_line = None
         matched_line_dict = None
         
-        # 1. Try to find actual centerlines for round ducts
-        if "⌀" in label or "Ø" in label or "dia" in label.lower() or "ΓîÇ" in label:
-            margin = 30
-            search_x0 = x0 - margin
-            search_y0 = y0 - margin
-            search_x1 = x1 + margin
-            search_y1 = y1 + margin
-            
-            page_lines = lines_by_page.get(page_num, [])
-            best_len = 0
-            
-            import math
-            for seg in page_lines:
-                line_min_x, line_max_x = min(seg.x0, seg.x1), max(seg.x0, seg.x1)
-                line_min_y, line_max_y = min(seg.y0, seg.y1), max(seg.y0, seg.y1)
-                
-                if line_max_x >= search_x0 and line_min_x <= search_x1 and line_max_y >= search_y0 and line_min_y <= search_y1:
-                    length = math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0)
-                    if length > 50 and length > best_len:
-                        best_len = length
-                        best_line = seg
-                        
-        if best_line:
-            # We found a real centerline!
-            sx0 = min(best_line.x0, best_line.x1)
-            sy0 = min(best_line.y0, best_line.y1)
-            sx1 = max(best_line.x0, best_line.x1)
-            sy1 = max(best_line.y0, best_line.y1)
-            
-            matched_line_dict = {
-                "x1": best_line.x0,
-                "y1": best_line.y0,
-                "x2": best_line.x1,
-                "y2": best_line.y1
-            }
-            
-            dx = best_line.x1 - best_line.x0
-            dy = best_line.y1 - best_line.y0
-            orient = "vertical" if abs(dy) > abs(dx) else "horizontal"
-        else:
+        source_tag = "synthetic"
+        
+        # 1. Try to find actual centerlines for round ducts using the tracer
+        if is_round_duct_label(label):
+            traced = trace_from_label(
+                label=label,
+                cx=cx, cy=cy,
+                orientation=orient,
+                page_segments=lines_by_page.get(page_num, []),
+            )
+            if traced:
+                matched_line_dict = traced
+                sx0, sy0 = min(traced["x1"], traced["x2"]), min(traced["y1"], traced["y2"])
+                sx1, sy1 = max(traced["x1"], traced["x2"]), max(traced["y1"], traced["y2"])
+                source_tag = "centerline_traced"
+
+        if not matched_line_dict:
             # 2. Fall back to synthetic box generation
             duct_half_length = 60.0
             duct_half_thickness = 10.0
@@ -831,7 +812,7 @@ async def annotate_pdf(
                 material=None,
                 confidence=conf,
                 orientation=orient,
-                source="auto_centerline" if best_line else "synthetic",
+                source=source_tag if matched_line_dict else "synthetic",
                 line=matched_line_dict
             )
         )
