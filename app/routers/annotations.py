@@ -19,6 +19,7 @@ from collections import defaultdict
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 
 from app.core.config import settings
+from app.services.centerline_tracer import is_round_duct_label, trace_from_label
 from app.models.schemas import (
     AnnotationResponse,
     DuctAnnotation,
@@ -563,7 +564,8 @@ async def annotate_pdf(
     pdf_bytes = await _read_pdf_upload(file)
     file_hash = hashlib.md5(pdf_bytes).hexdigest()
 
-    existing_records = list_manual_annotations_from_store(file_hash)
+    skip_cache = os.getenv("DISABLE_ANNOTATION_CACHE", "false").lower() == "true"
+    existing_records = [] if skip_cache else list_manual_annotations_from_store(file_hash)
     if existing_records:
         logger.info("Cache hit for document %s (%s)", file.filename, file_hash)
         
@@ -688,6 +690,14 @@ async def annotate_pdf(
         ):
             continue
 
+        # Compute a centerline for the frontend to render at the correct orientation
+        _cx = (cand.bbox.x0 + cand.bbox.x1) / 2.0
+        _cy = (cand.bbox.y0 + cand.bbox.y1) / 2.0
+        if cand.orientation == "vertical":
+            computed_line = {"x1": _cx, "y1": cand.bbox.y0, "x2": _cx, "y2": cand.bbox.y1}
+        else:
+            computed_line = {"x1": cand.bbox.x0, "y1": _cy, "x2": cand.bbox.x1, "y2": _cy}
+
         annotations.append(
             DuctAnnotation(
                 id=cand.id,
@@ -704,6 +714,7 @@ async def annotate_pdf(
                 material=mat,
                 confidence=conf,
                 orientation=cand.orientation,
+                line=computed_line,
             )
         )
 
@@ -759,48 +770,31 @@ async def annotate_pdf(
         
         best_line = None
         matched_line_dict = None
-        
-        # 1. Try to find actual centerlines for round ducts
-        if "⌀" in label or "Ø" in label or "dia" in label.lower() or "ΓîÇ" in label:
-            margin = 30
-            search_x0 = x0 - margin
-            search_y0 = y0 - margin
-            search_x1 = x1 + margin
-            search_y1 = y1 + margin
-            
+
+        # --- Find centerline via trace_from_label (round ducts) ---
+        if is_round_duct_label(label):
             page_lines = lines_by_page.get(page_num, [])
-            best_len = 0
-            
-            import math
-            for seg in page_lines:
-                line_min_x, line_max_x = min(seg.x0, seg.x1), max(seg.x0, seg.x1)
-                line_min_y, line_max_y = min(seg.y0, seg.y1), max(seg.y0, seg.y1)
-                
-                if line_max_x >= search_x0 and line_min_x <= search_x1 and line_max_y >= search_y0 and line_min_y <= search_y1:
-                    length = math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0)
-                    if length > 50 and length > best_len:
-                        best_len = length
-                        best_line = seg
-                        
-        if best_line:
-            # We found a real centerline!
-            sx0 = min(best_line.x0, best_line.x1)
-            sy0 = min(best_line.y0, best_line.y1)
-            sx1 = max(best_line.x0, best_line.x1)
-            sy1 = max(best_line.y0, best_line.y1)
-            
-            matched_line_dict = {
-                "x1": best_line.x0,
-                "y1": best_line.y0,
-                "x2": best_line.x1,
-                "y2": best_line.y1
-            }
-            
-            dx = best_line.x1 - best_line.x0
-            dy = best_line.y1 - best_line.y0
-            orient = "vertical" if abs(dy) > abs(dx) else "horizontal"
-        else:
-            # 2. Fall back to synthetic box generation
+            # Try the text-direction-determined orientation first, then the other
+            orient_order = ["vertical", "horizontal"] if is_vertical else ["horizontal", "vertical"]
+            for try_orient in orient_order:
+                traced = trace_from_label(
+                    label=label, cx=cx, cy=cy,
+                    orientation=try_orient,
+                    page_segments=page_lines,
+                    snap_px=60.0,
+                )
+                if traced:
+                    orient = try_orient
+                    matched_line_dict = traced
+                    sx0 = min(traced["x1"], traced["x2"])
+                    sy0 = min(traced["y1"], traced["y2"])
+                    sx1 = max(traced["x1"], traced["x2"])
+                    sy1 = max(traced["y1"], traced["y2"])
+                    best_line = True   # sentinel – line was found
+                    break
+
+        if not best_line:
+            # Fall back to synthetic box generation
             duct_half_length = 60.0
             duct_half_thickness = 10.0
             
@@ -831,7 +825,7 @@ async def annotate_pdf(
                 material=None,
                 confidence=conf,
                 orientation=orient,
-                source="auto_centerline" if best_line else "synthetic",
+                source="centerline_traced" if best_line else "synthetic",
                 line=matched_line_dict
             )
         )

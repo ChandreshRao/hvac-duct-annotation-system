@@ -16,6 +16,7 @@ from __future__ import annotations
 import logging
 import math
 import re
+import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,7 +26,9 @@ import fitz  # PyMuPDF
 import httpx
 
 from app.core.config import settings
-from app.models.schemas import DuctCandidate, GPTDuctAnalysis
+from app.models.schemas import DuctCandidate, GPTDuctAnalysis, TextBlock
+from app.services.document_ai_parser import parse_document_ai_json
+
 
 logger = logging.getLogger(__name__)
 
@@ -500,6 +503,8 @@ def _extract_page0_text_spans(pdf_path: str) -> list[_TextSpan]:
             page_spans = _spans_from_raw_dict(raw, page.number)
             embedded_count = len(page_spans)
 
+
+
             if settings.enable_ocr_extraction:
                 try:
                     if settings.use_ocr_service:
@@ -543,6 +548,37 @@ def _extract_page0_text_spans(pdf_path: str) -> list[_TextSpan]:
                     )
             else:
                 all_spans.extend(page_spans)
+
+        # Integrate Document AI JSON if present (currently hardcoded as a sidecar to the pdf)
+        pdf_path_obj = Path(pdf_path)
+        doc_ai_json_path = pdf_path_obj.parent / "document.json"
+        if doc_ai_json_path.exists():
+            logger.info(f"document.json found at {doc_ai_json_path}, merging Document AI texts.")
+            # PDF logical dims (assuming uniform pages for now)
+            w = doc[0].rect.width
+            h = doc[0].rect.height
+            doc_ai_blocks = parse_document_ai_json(doc_ai_json_path, pdf_width=w, pdf_height=h)
+            for b in doc_ai_blocks:
+                cx = (b.x0 + b.x1) / 2.0
+                cy = (b.y0 + b.y1) / 2.0
+                
+                # Format raw Document AI outputs (like 14" or 12") to include the phi symbol
+                # so that our ROUND_DUCT_RE matches them and sends them to the centerline tracer.
+                formatted_text = b.text.strip()
+                if 'x' not in formatted_text.lower() and '*' not in formatted_text:
+                    match = re.search(r'^(\d+)(.*)$', formatted_text)
+                    if match:
+                        formatted_text = f"{match.group(1)}⌀"
+                
+                span = _TextSpan(
+                    text=formatted_text,
+                    bbox=(b.x0, b.y0, b.x1, b.y1),
+                    center=(cx, cy),
+                    direction=(1.0, 0.0), # Assume horizontal for doc AI initially
+                    quad=None,
+                    page=b.page
+                )
+                all_spans.append(span)
 
         return _dedupe_spans(all_spans)
     finally:

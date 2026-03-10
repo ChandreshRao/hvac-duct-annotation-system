@@ -3,17 +3,19 @@ GPT-4o Analyzer Service
 =======================
 Primary analysis path uses rules-based PDF text extraction.
 When rules cannot resolve a candidate (confidence == 0.0), falls back to
-GitHub Models / OpenAI GPT-4o vision for that crop.
+GitHub Models, OpenAI GPT-4o, or Anthropic Claude for that crop.
 
 GitHub Models endpoint:
   https://models.inference.ai.azure.com
-
+  
+Anthropic endpoint:
+  https://api.anthropic.com/v1
+  
 Standard OpenAI endpoint:
   https://api.openai.com/v1
 
-The choice is controlled by the GITHUB_TOKEN / OPENAI_API_KEY environment
-variables.  If GITHUB_TOKEN is set, the GitHub Models endpoint is used.
-If OPENAI_API_KEY is set, the OpenAI endpoint is used.
+The choice is controlled by the environment variables. GITHUB_TOKEN has highest
+priority, followed by ANTHROPIC_API_KEY, and then OPENAI_API_KEY.
 """
 
 from __future__ import annotations
@@ -45,10 +47,11 @@ SYSTEM_PROMPT = (
     "You will be shown a cropped region of an HVAC ductwork drawing. "
     "Extract any duct annotations you can find and return ONLY a valid JSON "
     "object with the following fields:\n"
-    "  dimension     – duct size as a string e.g. '24x12', '18\" dia', or null\n"
-    "  pressure_class – pressure rating e.g. '0.5\"wg', '1\"wg', '2\"wg', or null\n"
-    "  material      – duct material e.g. 'galvanized steel', 'flexible duct', "
-    "'fiberglass', 'stainless steel', or null\n"
+    "  dimension     – duct size as a string e.g. '24x12', '18\" dia', or null.\n"
+    "                  CRITICAL: NEVER append the pressure class or material to the dimension string.\n"
+    "                  If the label reads '24x12 1\"wg', dimension should just be '24x12'.\n"
+    "  pressure_class – pressure rating e.g. '0.5\"wg', '1\"wg', 'HIGH', or null\n"
+    "  material      – duct material e.g. 'galvanized steel', 'flexible duct', or null\n"
     "  confidence    – a float between 0.0 and 1.0 reflecting how confident you are\n"
     "Return ONLY the raw JSON object, no markdown fences or extra text."
 )
@@ -63,8 +66,11 @@ USER_PROMPT = (
 # ---------------------------------------------------------------------------
 
 _GITHUB_BASE = "https://models.inference.ai.azure.com"
+_ANTHROPIC_BASE = "https://api.anthropic.com/v1"
 _OPENAI_BASE = "https://api.openai.com/v1"
 
+def _is_anthropic() -> bool:
+    return not settings.github_token and bool(settings.anthropic_api_key)
 
 def _build_headers() -> dict[str, str]:
     if settings.github_token:
@@ -72,15 +78,22 @@ def _build_headers() -> dict[str, str]:
             "Authorization": f"Bearer {settings.github_token}",
             "Content-Type": "application/json",
         }
+    if settings.anthropic_api_key:
+        return {
+            "x-api-key": settings.anthropic_api_key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+        }
     return {
         "Authorization": f"Bearer {settings.openai_api_key}",
         "Content-Type": "application/json",
     }
 
-
 def _build_url() -> str:
     if settings.github_token:
         return f"{_GITHUB_BASE}/chat/completions"
+    if settings.anthropic_api_key:
+        return f"{_ANTHROPIC_BASE}/messages"
     return f"{_OPENAI_BASE}/chat/completions"
 
 
@@ -91,6 +104,34 @@ def _build_payload(image_b64: str, nearby_text: list[str]) -> dict[str, Any]:
             f"\n\nNearby drawing text that may contain labels: "
             + ", ".join(f'"{t}"' for t in nearby_text[:10])
         )
+        
+    if _is_anthropic():
+        return {
+            "model": settings.gpt_model,
+            "system": SYSTEM_PROMPT,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "image/png",
+                                "data": image_b64,
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": USER_PROMPT + context_hint,
+                        },
+                    ],
+                }
+            ],
+            "max_tokens": 256,
+            "temperature": 0.0,
+        }
+
     return {
         "model": settings.gpt_model,
         "messages": [
@@ -152,16 +193,21 @@ async def analyze_duct_crop(
     url = _build_url()
 
     try:
-        resp = await client.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=settings.gpt_timeout_seconds,
-        )
+        resp = await client.post(url, headers=headers, json=payload, timeout=20.0)
         resp.raise_for_status()
         data = resp.json()
-        content = data["choices"][0]["message"]["content"]
-        return _parse_gpt_response(content)
+
+        if _is_anthropic():
+            content = data.get("content", [{}])[0].get("text", "")
+        else:
+            content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+        if not content:
+            logger.warning("Empty response from AI for candidate %s", candidate.id)
+            return GPTDuctAnalysis(confidence=0.0)
+
+        analysis = _parse_gpt_response(content)
+        return analysis
     except httpx.HTTPStatusError as exc:
         logger.error(
             "GPT-4o HTTP error for candidate %d: %s",

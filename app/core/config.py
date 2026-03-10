@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     # OPENAI_API_KEY routes to the standard OpenAI endpoint.
     # ------------------------------------------------------------------
     github_token: str | None = None
+    anthropic_api_key: str | None = None
     openai_api_key: str | None = None
 
     # ------------------------------------------------------------------
@@ -45,6 +46,7 @@ class Settings(BaseSettings):
     use_ocr_service: bool = False
     ocr_service_url: str = "http://localhost:8081/ocr"
     ocr_service_timeout_seconds: float = 30.0
+    disable_annotation_cache: bool = False
 
     # ------------------------------------------------------------------
     # Rules-based text matching tuning (candidate ↔ label association)
@@ -65,7 +67,7 @@ class Settings(BaseSettings):
     # API settings
     # ------------------------------------------------------------------
     max_upload_size_mb: int = 50
-    manual_annotations_db_path: str = "data/manual_annotations.db"
+    manual_annotations_db_path: str = "data/manual_annotations_v2.db"
 
     def validate_auth(self) -> None:
         if not self.github_token and not self.openai_api_key:

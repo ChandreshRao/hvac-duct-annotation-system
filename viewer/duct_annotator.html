@@ -727,7 +727,8 @@
       try {
         const fd = new FormData();
         fd.append('file', file);
-        const res = await fetch(API_ENDPOINT, { method: 'POST', body: fd, signal: AbortSignal.timeout(30000) });
+        setStat('ANALYZING PDF… THIS MAY TAKE 1-2 MINUTES');
+        const res = await fetch(API_ENDPOINT, { method: 'POST', body: fd, signal: AbortSignal.timeout(300000) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data = await res.json();
         const raw = Array.isArray(data) ? data : (data.annotations || []);

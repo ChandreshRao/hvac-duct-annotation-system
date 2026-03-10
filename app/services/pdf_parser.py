@@ -25,6 +25,19 @@ logger = logging.getLogger(__name__)
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _apply_derotation(x: float, y: float, dm: fitz.Matrix) -> tuple[float, float]:
+    """Transform a single point using a derotation matrix."""
+    pt = fitz.Point(x, y) * dm
+    return pt.x, pt.y
+
+
+def _derotate_segment(seg: LineSegment, dm: fitz.Matrix) -> LineSegment:
+    """Return a copy of seg with coordinates mapped through the derotation matrix."""
+    x0, y0 = _apply_derotation(seg.x0, seg.y0, dm)
+    x1, y1 = _apply_derotation(seg.x1, seg.y1, dm)
+    return LineSegment(x0=x0, y0=y0, x1=x1, y1=y1, page=seg.page)
+
+
 def _rect_to_lines(rect: fitz.Rect, page_num: int) -> list[LineSegment]:
     """Convert a PDF rect path item into its four edge line segments."""
     x0, y0, x1, y1 = rect.x0, rect.y0, rect.x1, rect.y1
@@ -36,14 +49,11 @@ def _rect_to_lines(rect: fitz.Rect, page_num: int) -> list[LineSegment]:
     ]
 
 
-def _extract_lines_from_path(path: dict, page_num: int) -> list[LineSegment]:
+def _extract_lines_from_path(
+    path: dict, page_num: int
+) -> list[LineSegment]:
     """
     Walk a single fitz drawing path and yield every straight line segment.
-    path["items"] is a list of tuples:
-      ('l', p0, p1)  – straight line
-      ('c', p0, p1, p2, p3) – bezier curve (approximate as straight line p0→p3)
-      ('re', rect)   – axis-aligned rectangle
-      ('qu', quad)   – quadrilateral
     """
     segments: list[LineSegment] = []
     items = path.get("items", [])
@@ -70,6 +80,7 @@ def _extract_lines_from_path(path: dict, page_num: int) -> list[LineSegment]:
                 segments.append(
                     LineSegment(x0=a.x, y0=a.y, x1=b.x, y1=b.y, page=page_num)
                 )
+
     return segments
 
 
