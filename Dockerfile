@@ -15,7 +15,7 @@ COPY tests /app/tests
 COPY scripts /app/scripts
 COPY bootstrap_db.py /app/bootstrap_db.py
 
-RUN chmod +x /app/scripts/start.sh
+RUN sed -i 's/\r$//' /app/scripts/start.sh && chmod +x /app/scripts/start.sh
 
 EXPOSE 8000
 
